@@ -1,0 +1,649 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.4.1">Jekyll</generator><link href="https://robs-ramblings.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://robs-ramblings.github.io/" rel="alternate" type="text/html" /><updated>2026-04-21T17:12:35-06:00</updated><id>https://robs-ramblings.github.io/feed.xml</id><title type="html">Rob’s Ramblings</title><subtitle>Ramblings on tech, software, electronics, games, rendering, and anything else that interests me</subtitle><author><name>Rob Wyatt</name></author><entry><title type="html">Under the hood of Windows timestamps</title><link href="https://robs-ramblings.github.io/2026/04/20/timestamps.html" rel="alternate" type="text/html" title="Under the hood of Windows timestamps" /><published>2026-04-20T00:00:00-06:00</published><updated>2026-04-20T00:00:00-06:00</updated><id>https://robs-ramblings.github.io/2026/04/20/timestamps</id><content type="html" xml:base="https://robs-ramblings.github.io/2026/04/20/timestamps.html"><![CDATA[<p>Programmers have always needed reliable timestamps and elapsed time is considered a fundamental operating system service.  Windows is no different but providing reliable and accurate timestamps to a Windows application has made Microsoft jump through hoops for 40 years. You could say this seemingly simple task that every operating system supports has eluded them completely.</p>
+
+<p>Even the early 8bit home computers had reliable access to time. Early game consoles without timers would use the display vsync as a time base -  this is why a lot of games ran faster when ported from PAL to NTSC. Regardless of the source, accurate elapsed time is essential.</p>
+
+<p>Compared to Linux and MacOS, where the <code class="language-plaintext highlighter-rouge">clock_gettime</code> API will return all sorts of time stamps to a standardized nanosecond resolution, Windows doesn’t have such a consistent API. Over the years, bad assumptions along with a quagmire of edge cases have caused all sorts of time related problems. Sure, Windows has a complicated legacy and there are lots of backwards compatibility issues that still dictate how time works to this day, buy why is it that even in Windows 11 there not a time API with guaranteed standard units?</p>
+
+<p>These aforementioned bad assumptions are typically what causes old software to misbehave when running on modern machines. Old applications sometimes stutter, run too slow or too fast, and sometimes outright crash. These misbehaving apps are not directly Microsoft’s fault, the apps are usually victims of assumptions that seemed reasonable at the time. How many times have you heard “that won’t change”??</p>
+
+<p>In this post we are taking a deep dive in to the Windows time APIs to see exactly how they work and how they evolved - from DOS to hypervisors. We’ll figure out what modern apps should be using for time. We’ll see that Windows 11 gets pretty close to a standard timer, but not quite. Ironically, its consistent enough that it will probably lead to more bad assumptions!</p>
+
+<hr />
+
+<p>For a fleeting moment it seemed like we could avoid all time based APIs and do things ourselves. Starting with the original Pentium processor, some 30+ years ago, Intel added the RDTSC instruction, this reads a hardware time stamp counter (TSC) that incremented every clock cycle, and for the first time applications had a hardware counter that was accessible with low latency in user mode that would provide cycle level resolution. For a while all of our timing problems were solved, even a lowly 100Mhz Pentium could give 10ns timestamps, elapsed time could be accurately measured, code could easily be profiled to see the results of the smallest micro optimizations; all things that were exceptionally difficult or impossible with the windows time APIs at the time. The hardest thing, if you needed to measure wall time, was figuring out the processor clock frequency which dictated how fast the TSC would increment.</p>
+
+<p>However, it didn’t last. While RDTSC was used everywhere, nobody thought it wouldn’t ever break or its behavior change, but it did break.</p>
+
+<p>Early multiple processor systems had physically different processors, in physically different packages, and each would have its own none-synchronized timestamp. If your code switched processors the RDTSC instruction could give the impression of time randomly jumping around, including going backwards, which caused all sorts of problems. Lots of games and media apps written in the days of single processors suffered due to this. It wasn’t just third party code, even Microsoft’s system tools suffered, for example <code class="language-plaintext highlighter-rouge">ping</code> on an early Windows Server sometimes fails with negative time!</p>
+
+<p>Over time, even on single processor machines, RDTSC became unreliable. The hardware timestamp counter would increment at the raw clock speed of the processor; which wasn’t stable. The frequency would change small amounts due to spread spectrum clocking but would change by huge amounts due to thermal and power management which made RDTSC unusable. To make things worse, variable frequency clocking happened around the same time as multi-processor machines started to get commonplace so it was a double whammy of unreliability. RDTSC could still be used for micro-profiling, albeit with great care, but it was generally impossible to correlate the TSC with wall time.</p>
+
+<p>Today, this problem is mostly fixed, via the invariant TSC, which increments at a fixed rate in all power and thermal states. From a software point of view the invariant TSC can once again be used for accurate timing and it directly correlates to wall time. Microsoft still recommends to not use the RDTSC instruction and instead use the <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> API, but is this true??? Before we answer that question, lets look at the multiple methods and APIs used to get time and boy is there is a lot of history here….</p>
+
+<hr />
+
+<p>Prior to RDTSC, and during the many years that RDTSC couldn’t reliably be used, Windows APIs were the only option. Most of the APIs were interrupt driven, and none of them were great. Stuttering in early games and media was often the result of poor time that lacked resolution and accuracy.</p>
+
+<p><code class="language-plaintext highlighter-rouge">GetTickCount</code> has been in the Windows API since the 16bit days, it still exists today and is used everywhere, directly by thrid party apps and indirectly by other Windows APIs. As documented, it returns the integer number of milliseconds since the system was booted. The resulting <em>32bit</em> counter will wrap in 49.7 days, to avoid wrapping modern versions of Windows have <code class="language-plaintext highlighter-rouge">GetTickCount64</code> which is identical in functionality other than returning a 64bit result. Realistically having a timer wrap in 49.7 days probably wasn’t an issue for Windows3.1 because it wouldn’t stay on that long. While the resolution of the <code class="language-plaintext highlighter-rouge">GetTickCount</code> is 1ms, it’s accuracy has never been close, and still isn’t. Initially, the accuracy of this API was a whopping 55ms, this was true all the way though the end of life of Win9x operating systems. For Windows NT based operating systems the resolution has always been 10-15ms, where it still is today, even on Windows 11.</p>
+
+<p>To understand were the 55ms interval comes from, which seems like a very random number in computer terms, we have to go all the way back to the origins of the PC BIOS. The original IBM PC ran at 4.77MHz (quartered from a master clock of 14.31818Mhz crystal), this was quartered again, to 1.19318MHz, to clock the 8254 programmable interval timer. 65536 cycles at 1.19318MHz is 54.92ms or 18.2Hz. The timer generated an interrupt on IRQ8 which was used by the BIOS (not Windows) to track wall time.</p>
+
+<p>Early Windows ran on top of DOS and used all the DOS and BIOS services as-is, therefore it didn’t mess with the timer hardware. The original <code class="language-plaintext highlighter-rouge">GetTickCount()</code> API was a wrapper for the BIOS timer interrupt, it literally counted interrupts and multiplied that by 54.92 to compute elapsed time in milliseconds. As an optimization, the API did the multiplication only when it was called, amazingly it is still implemented this way on Windows 11 and although the origin of the tick counter is a little different the resolution is still only about 15ms. Lots of DOS games hijacked the 8254 timer hardware and installed their own interrupt handler, so DOS game had access to accurate time. NT based operating systems were never based on DOS, the NT kernel took control of the timer hardware. On single processor NT machine the interrupt period was set to about 10ms, while on a multi processor machines about 15ms; much better than 55ms from 16bit windows and win9x but nowhere near good enough for games and media.</p>
+
+<p>A common pattern within NT based operating systems is to have documented public Win32 APIs, which are internally implemented with the somewhat undocumented native APIs. The NT version of <code class="language-plaintext highlighter-rouge">GetTickCount</code> was a wrapper for the native API <code class="language-plaintext highlighter-rouge">NtGetTickCount</code>, which was originally a system call to the kernel.  Therefore getting the elapsed time in milliseconds involved a fairly expensive system call.</p>
+
+<p>Today, <code class="language-plaintext highlighter-rouge">GetTickCount</code> is just a few instructions, with minimal CPU overhead and there are no system calls. Also, it doesn’t call <code class="language-plaintext highlighter-rouge">NtGetTickCount</code> (which is implemented identically). Unfortunately, its no more accurate than its ever been.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">GetTickCount:</span>
+<span class="nf">mov</span>         <span class="nb">ecx</span><span class="p">,</span><span class="mh">7FFE0320h</span>               <span class="c1">;get the interrupt count</span>
+<span class="nf">mov</span>         <span class="nb">rcx</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rcx</span><span class="p">]</span>         
+<span class="nf">mov</span>         <span class="nb">eax</span><span class="p">,</span><span class="kt">dword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="mh">7FFE0004h</span><span class="p">]</span>   <span class="c1">;get a 24bit fixed point multiplier</span>
+<span class="nf">imul</span>        <span class="nb">rax</span><span class="p">,</span><span class="nb">rcx</span>                     <span class="c1">;multiply</span>
+<span class="nf">shr</span>         <span class="nb">rax</span><span class="p">,</span><span class="mh">18h</span>                     <span class="c1">;shift down to give integer milliseconds</span>
+<span class="nf">ret</span>  
+</code></pre></div></div>
+
+<hr />
+
+<p>In the disassembly above it, while it doesn’t use any sycalls, it instead reads from hardcoded addresses <code class="language-plaintext highlighter-rouge">0x7FFE0320</code> and <code class="language-plaintext highlighter-rouge">0x7FFE0004</code>. These addresses are part of what is known as <a href="https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm">kuser_shared</a>. This was first implemented in Windows NT 3.5 and has been there ever since. <code class="language-plaintext highlighter-rouge">kuser_shared</code> is a read only memory page mapped to every process by the kernel at fixed address <code class="language-plaintext highlighter-rouge">0x7FFE0000</code>. This allows the kernel to share things like constants, counters and configuration data without having to rely on system calls, user mode code can simply read the data from local process mempory, at full speed, all user mode processes see the same data at the same time. It’s intended for internal use and was never officially documented until the <a href="https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/ns-ntddk-kuser_shared_data">Windows 10 DDK</a>. There are a lot of elements in <code class="language-plaintext highlighter-rouge">kuser_shared</code> that relate to time.</p>
+
+<blockquote>
+  <p>It’s highly recommended that production code doesn’t poke around in <code class="language-plaintext highlighter-rouge">kuser_shared</code>, while great for debugging, it can change between even minor versions of windows; but poking around is exactly what we’re going to do.</p>
+</blockquote>
+
+<p>Looking back at the disassembly above we can make sense of it. <code class="language-plaintext highlighter-rouge">0x7FFE0320</code> is a 64bit counter, the kernel increments this every tick interrupt. This used to be a 32bit counter at address <code class="language-plaintext highlighter-rouge">0x7FFE0000</code>, that location is no longer used and is a perfect example of why production code shouldn’t use <code class="language-plaintext highlighter-rouge">kuser_shared</code> directly, some old applications that did no longer work. <code class="language-plaintext highlighter-rouge">0x7FFE004</code> is known as the <code class="language-plaintext highlighter-rouge">TickCountMultiplier</code> and is the interrupt period in units of 100ns, shifted left by 24 bits, and divided by 10,000. The conversion of raw tick count to integer milliseconds is simply a multiplication of TickCountMultiplier and a shift right by 24 bits, which is exactly what the above code does (and is pretty much exactly what 16bit windows did).</p>
+
+<p>Today, most machines today have a multiplier of <code class="language-plaintext highlighter-rouge">0x0FA00000</code> which works out to be a period of 156250 (100ns system units) or 15.6250ms. Even in 2026, using Windows 11, the tick interrupt period is 15.625ms and this is the accuracy of <code class="language-plaintext highlighter-rouge">GetTickCount</code> - about the same as all the earlier NT based cousins. While the value for the tick count multiplier has been constant at <code class="language-plaintext highlighter-rouge">0x0FA00000</code> for a while, you shouldn’t rely on it, you certainly shouldn’t compute the tick period directly from the multiplier. There are more legitimate ways to get the tick period from the kernel.</p>
+
+<p>At this point it is worth noting that the tick count at <code class="language-plaintext highlighter-rouge">0x7FFE0320</code>, which drives <code class="language-plaintext highlighter-rouge">GetTickCount</code>, isn’t driven directly from a hardware interrupt like it used to be. Instead, the tick count is abstracted from the more modern kernel interval timer interrupt, which can, and does, change its period on the fly. If I remember from my time on the the Windows kernel, the timer interval interrupt is handled by a function called <code class="language-plaintext highlighter-rouge">KeUpdataSystemTime</code> and in this function the kernel updates the interval interrupt time and then simply decrements the remaining TickCount period with the elapsed time since the last interval interrupt (in 100nS units), when this counter period reaches zero the tick counter at location <code class="language-plaintext highlighter-rouge">0x7FFE0320</code> is incremented - it’s kind crude.  The kernel interval timer interrupt may occur much faster than the tick period but it can never be slower otherwise the tick counter would miss increments.  On my machine the kernel interval interrupt occurs somewhere between 0.5ms and 15.625ms.</p>
+
+<p>Its really important to note that the period of the kernel interval timer interrupt doesn’t have to be a factor of 15.625ms (the tick count speed), in can be anything between a min and max value. Therefore, the the tick counter at location <code class="language-plaintext highlighter-rouge">0x7FFE0320</code> might average out to its actual period of 15.625ms, but it has a whole lot of jitter, if the kernel interval timer is set at 7ms, then the kernel might not update the tick count at <code class="language-plaintext highlighter-rouge">0x7FFE0320</code> until 21ms have elapsed.</p>
+
+<blockquote>
+  <p>The various counters in <code class="language-plaintext highlighter-rouge">kuser_shared</code> are updated without the need for locks on multi-processor machines. The older 32bit versions of Windows had to jump through a few hoops to ensure the 64bit values were reliably updated. Everything in this post assumes a modern 64bit version of Windows.</p>
+</blockquote>
+
+<p>Here is some test code that show the jitter in real time.</p>
+
+<div class="language-c++ highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
+<span class="p">{</span>
+  <span class="kt">uint64_t</span> <span class="n">old</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="k">volatile</span> <span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="mh">0x7FFE0008</span><span class="p">;</span>
+  <span class="kt">uint64_t</span> <span class="n">old_tick</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="k">volatile</span> <span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="mh">0x7FFE0320</span><span class="p">;</span>
+  <span class="kt">uint64_t</span> <span class="n">last_tick_change</span> <span class="o">=</span> <span class="n">old</span><span class="p">;</span>
+  <span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+  <span class="p">{</span>
+    <span class="kt">uint64_t</span> <span class="n">current</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="k">volatile</span> <span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="mh">0x7FFE0008</span><span class="p">;</span>
+
+    <span class="c1">//has a kernel interrupt fired</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">old</span> <span class="o">!=</span> <span class="n">current</span><span class="p">)</span>
+    <span class="p">{</span>
+      <span class="kt">uint64_t</span> <span class="n">kdelta</span> <span class="o">=</span> <span class="n">current</span> <span class="o">-</span> <span class="n">old</span><span class="p">;</span>
+      <span class="kt">uint64_t</span> <span class="n">tick_count</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="k">volatile</span> <span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="mh">0x7FFE0320</span><span class="p">;</span>
+
+      <span class="k">if</span> <span class="p">(</span><span class="n">tick_count</span> <span class="o">==</span> <span class="n">old_tick</span><span class="p">)</span>
+      <span class="p">{</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"ktimer = %lld (kdelta=%lld), tick=%lld</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">current</span><span class="p">,</span> <span class="n">kdelta</span><span class="p">,</span> <span class="n">tick_count</span><span class="p">);</span>
+      <span class="p">}</span>
+      <span class="k">else</span> 
+      <span class="p">{</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"ktimer = %lld (kdelta=%lld), tick=%lld, tick_delta=%lld</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">current</span><span class="p">,</span> <span class="n">kdelta</span><span class="p">,</span> <span class="n">tick_count</span><span class="p">,</span> <span class="n">current</span> <span class="o">-</span> <span class="n">last_tick_change</span><span class="p">);</span>
+        <span class="n">last_tick_change</span> <span class="o">=</span> <span class="n">current</span><span class="p">;</span>
+        <span class="n">old_tick</span> <span class="o">=</span> <span class="n">tick_count</span><span class="p">;</span>
+      <span class="p">}</span>
+
+      <span class="n">old</span> <span class="o">=</span> <span class="n">current</span><span class="p">;</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>The code spins while it waits for the kernel interval timer interrupt at location <code class="language-plaintext highlighter-rouge">0x7FFE0008</code> to change (this address is the time of the last kernel interval timer interrupt, in units of 100ns, it is set by the kernel itself within the interrupt handler). The code then looks to see if the tick count has changed and if it has computes the elapsed time from the last update.</p>
+
+<p>Here are real results from my windows 11 test machine, the amount of jitter in tick_delta is not good.</p>
+
+<div class="language-markdown highlighter-rouge"><div class="highlight"><pre class="highlight"><code>initially the timer was running at about 1ms intervals
+you can see the tick delta from the previous update is 15.9ms
+
+This 1ms interval continues until it switches to 10ms
+
+ktimer = 4946927507603 (kdelta=9994), tick=31660336, tick_delta=159942
+ktimer = 4946927517606 (kdelta=10003), tick=31660336
+ktimer = 4946927527603 (kdelta=9997), tick=31660336
+ktimer = 4946927537604 (kdelta=10001), tick=31660336
+ktimer = 4946927547608 (kdelta=10004), tick=31660336
+ktimer = 4946927557606 (kdelta=9998), tick=31660336
+ktimer = 4946927567603 (kdelta=9997), tick=31660336
+ktimer = 4946927577604 (kdelta=10001), tick=31660336
+ktimer = 4946927587604 (kdelta=10000), tick=31660336
+ktimer = 4946927597603 (kdelta=9999), tick=31660336
+ktimer = 4946927607618 (kdelta=10015), tick=31660336
+ktimer = 4946927617607 (kdelta=9989), tick=31660336
+
+Here is where the interrupt interval switches to 10ms, and it because of this
+the next tick update doesn't occur until 21ms. 
+With a 10ms interval the best the 15.625ms tick can do is bounce between 10 and 20ms
+
+ktimer = 4946927718095 (kdelta=100488), tick=31660337, tick_delta=210492
+ktimer = 4946927818092 (kdelta=99997), tick=31660338, tick_delta=99997
+ktimer = 4946927918095 (kdelta=100003), tick=31660338
+ktimer = 4946928018092 (kdelta=99997), tick=31660339, tick_delta=200000
+ktimer = 4946928118084 (kdelta=99992), tick=31660339
+ktimer = 4946928218105 (kdelta=100021), tick=31660340, tick_delta=200013
+ktimer = 4946928318081 (kdelta=99976), tick=31660341, tick_delta=99976
+ktimer = 4946928418096 (kdelta=100015), tick=31660341
+ktimer = 4946928518105 (kdelta=100009), tick=31660342, tick_delta=200024
+ktimer = 4946928618088 (kdelta=99983), tick=31660343, tick_delta=99983
+ktimer = 4946928718076 (kdelta=99988), tick=31660343
+ktimer = 4946928818082 (kdelta=100006), tick=31660344, tick_delta=199994
+
+from here the interval is quite random for a while
+
+ktimer = 4946928848076 (kdelta=29994), tick=31660344
+ktimer = 4946928858169 (kdelta=10093), tick=31660344
+ktimer = 4946928867110 (kdelta=8941), tick=31660344
+ktimer = 4946928868757 (kdelta=1647), tick=31660344
+ktimer = 4946928869416 (kdelta=659), tick=31660344
+ktimer = 4946928947830 (kdelta=78414), tick=31660345, tick_delta=129748
+ktimer = 4946928948959 (kdelta=1129), tick=31660345
+ktimer = 4946928958946 (kdelta=9987), tick=31660345
+ktimer = 4946928967940 (kdelta=8994), tick=31660345
+ktimer = 4946929063042 (kdelta=95102), tick=31660346, tick_delta=115212
+</code></pre></div></div>
+
+<p>You don’t have to compute the elapsed time between 2 timer interrupts to work out the current speed of the kernel interval timer, we can use native api function <code class="language-plaintext highlighter-rouge">NtQueryTimerResolution</code>, this fills out the minimum resolution (slowest timer rate), the maximum resolution (fastest timer rate), and the current resolution at the time it was called (all in 100ns system time units). The minimum resolution for the kernel interval timer will always be the the tick count interval, this ensures the tick counter always increments monotonically and never misses a value.</p>
+
+<blockquote>
+  <p>There are no easily accessible headers for the native API. You have to declare the functions yourself and either link with static library ntdll.lib, or use <code class="language-plaintext highlighter-rouge">GetProcAddress</code> on ntdll.dll to dynamically link.</p>
+</blockquote>
+
+<div class="language-c++ highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">extern</span> <span class="s">"C"</span> <span class="n">NTSYSAPI</span> <span class="n">NTSTATUS</span> <span class="n">NTAPI</span> <span class="nf">NtQueryTimerResolution</span><span class="p">(</span>
+  <span class="n">OUT</span> <span class="n">PULONG</span> <span class="n">MinimumResolution</span><span class="p">,</span>
+  <span class="n">OUT</span> <span class="n">PULONG</span> <span class="n">MaximumResolution</span><span class="p">,</span> 
+  <span class="n">OUT</span> <span class="n">PULONG</span> <span class="n">CurrentResolution</span><span class="p">);</span>
+
+
+  <span class="c1">//get the min, max and current resolution</span>
+  <span class="n">ULONG</span> <span class="n">minRes</span><span class="p">;</span>
+  <span class="n">ULONG</span> <span class="n">maxRes</span><span class="p">;</span>
+  <span class="n">ULONG</span> <span class="n">currentRes</span><span class="p">;</span>
+  <span class="n">NtQueryTimerResolution</span><span class="p">(</span><span class="o">&amp;</span><span class="n">minRes</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">maxRes</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">currentRes</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>On my machine <code class="language-plaintext highlighter-rouge">NtQueryTimerResolution</code> reports a minimum period (maximum resolution) of 5000 or 0.5ms and a maximum period (minimum resolution) of 156250 or 15.625ms. Calling this in a loop and displaying the current resolution will show the kernel timer changing resolution on the fly.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>kernel timer resolution = 156250
+kernel timer resolution = 100000
+kernel timer resolution = 156250
+kernel timer resolution = 10000
+kernel timer resolution = 10000
+kernel timer resolution = 10000
+kernel timer resolution = 156250
+</code></pre></div></div>
+
+<p>The reason is the kernel timer resolution changes is because it’s a system wide setting. The default value is the minimum resolution (15.625ms) but this will change as other processes ask for a different resolution. The final resolution will always be set to the minimum interval that has been asked for by any process. In the logs it is easy to see that periodically some process is asking for 1ms resolution, which is a common thing due to how the newer multimedia timers work. In order to satisfy that processes request for 1ms resolution, everybody gets 1ms resolution.</p>
+
+<p>The timer resolution can be set directly using native API <code class="language-plaintext highlighter-rouge">NtSetTimerResolution</code>:</p>
+
+<div class="language-c++ highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">extern</span> <span class="s">"C"</span> <span class="n">NTSYSAPI</span> <span class="n">NTSTATUS</span> <span class="n">NTAPI</span> <span class="nf">NtSetTimerResolution</span><span class="p">(</span>
+    <span class="n">ULONG</span> <span class="n">DesiredResolution</span><span class="p">,</span> 
+    <span class="n">BOOLEAN</span> <span class="n">SetResolution</span><span class="p">,</span> 
+    <span class="n">PULONG</span> <span class="n">CurrentResolution</span><span class="p">);</span>
+
+<span class="c1">//currentRes will be set to the current resolution</span>
+<span class="c1">//it may not be what you asked for if some other process </span>
+<span class="c1">//has asked for a higher resolution. </span>
+<span class="n">ULONG</span> <span class="n">currentRes</span><span class="p">;</span>
+<span class="n">NtSetTimerResolution</span><span class="p">(</span><span class="mi">5000</span><span class="p">,</span> <span class="n">TRUE</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">currentRes</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>The resolution has to be between the min and max reported by <code class="language-plaintext highlighter-rouge">NtQueryTimerResolution</code>.</p>
+
+<p>If we always set the maximum resolution, the kernel timer rate should be constant because no other process will be able to change it.  Including a call to <code class="language-plaintext highlighter-rouge">NtSetTimerResolution</code> and running the same log again we get much cleaner results, the kernel timer fires every 5000 time units (0.5ms) and the jitter across the tick counter is much more consistent.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ktimer = 4948512812590 (kdelta=5001), tick=31670482, tick_delta=155002
+ktimer = 4948512817589 (kdelta=4999), tick=31670482
+ktimer = 4948512822590 (kdelta=5001), tick=31670482
+ktimer = 4948512827590 (kdelta=5000), tick=31670482
+ktimer = 4948512832590 (kdelta=5000), tick=31670482
+ktimer = 4948512837589 (kdelta=4999), tick=31670482
+ktimer = 4948512842590 (kdelta=5001), tick=31670482
+ktimer = 4948512847589 (kdelta=4999), tick=31670482
+ktimer = 4948512852589 (kdelta=5000), tick=31670482
+ktimer = 4948512857593 (kdelta=5004), tick=31670482
+ktimer = 4948512862590 (kdelta=4997), tick=31670482
+ktimer = 4948512867595 (kdelta=5005), tick=31670482
+ktimer = 4948512872589 (kdelta=4994), tick=31670482
+ktimer = 4948512877588 (kdelta=4999), tick=31670482
+ktimer = 4948512882589 (kdelta=5001), tick=31670482
+ktimer = 4948512887589 (kdelta=5000), tick=31670482
+ktimer = 4948512892589 (kdelta=5000), tick=31670482
+ktimer = 4948512897589 (kdelta=5000), tick=31670482
+ktimer = 4948512902600 (kdelta=5011), tick=31670482
+ktimer = 4948512907592 (kdelta=4992), tick=31670482
+ktimer = 4948512912590 (kdelta=4998), tick=31670482
+ktimer = 4948512917606 (kdelta=5016), tick=31670482
+ktimer = 4948512922597 (kdelta=4991), tick=31670482
+ktimer = 4948512927605 (kdelta=5008), tick=31670482
+ktimer = 4948512932591 (kdelta=4986), tick=31670482
+ktimer = 4948512937591 (kdelta=5000), tick=31670482
+ktimer = 4948512942592 (kdelta=5001), tick=31670482
+ktimer = 4948512947589 (kdelta=4997), tick=31670482
+ktimer = 4948512952589 (kdelta=5000), tick=31670482
+ktimer = 4948512957616 (kdelta=5027), tick=31670482
+ktimer = 4948512962590 (kdelta=4974), tick=31670482
+ktimer = 4948512967589 (kdelta=4999), tick=31670482
+ktimer = 4948512972589 (kdelta=5000), tick=31670483, tick_delta=159999
+</code></pre></div></div>
+
+<p>In theory, the downside of using 0.5ms intervals is that it generates 2000 kernel interrupts per second, it doesn’t really have any noticeable effect on performance. Microsoft should just use a fixed the interval and be done with it.</p>
+
+<p><code class="language-plaintext highlighter-rouge">GetTickCount()</code> is jittery, not very accurate and not very precise.</p>
+
+<hr />
+
+<p>Another useful value in <code class="language-plaintext highlighter-rouge">kuser_shared</code>, is <code class="language-plaintext highlighter-rouge">0x7FFE0008</code>, it was used in the above code and is the last kernel interrupt time in 100ns system units. Reading the last interrupt time is a much better way to measure elapsed time than GetTickCount(), its more accurate but still has jitter due to the kernel timer period changing. One way to get the last kernel timer interrupt time is to directly read <code class="language-plaintext highlighter-rouge">0x7FFE0008</code>, the official way is to use the API <code class="language-plaintext highlighter-rouge">QueryInterruptTime()</code> which does exactly the same:</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">QueryInterruptTime:</span>
+  <span class="nf">mov</span>         <span class="nb">eax</span><span class="p">,</span><span class="mh">7FFE0008h</span>  
+  <span class="nf">mov</span>         <span class="nb">rax</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rax</span><span class="p">]</span>  
+  <span class="nf">mov</span>         <span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rcx</span><span class="p">],</span><span class="nb">rax</span>  
+  <span class="nf">ret</span>  
+</code></pre></div></div>
+
+<hr />
+
+<p>Windows 95 added the <code class="language-plaintext highlighter-rouge">timeGetTime</code> API as part of the multimedia APIs, the same APIs first showed up on NT based operating systems in Windows2000. These new APIs still only had a resolution of 1ms but apps could get 1ms accuracy too. These APIs still weren’t great for measuring elapsed time or scheduling video frames but given the lack of better options both games and multimedia apps used these extensively, even today these APIs are still used everywhere.</p>
+
+<p>Before using <code class="language-plaintext highlighter-rouge">timeGetTime</code>, applications used <code class="language-plaintext highlighter-rouge">timeBeginPeriod</code> to set the resolution of the timer, as you can probably guess, this is just wrapper for <code class="language-plaintext highlighter-rouge">NtSetTimerResolution</code> with input quantized to whole milliseconds, with 1ms being the minimum. This is why 1ms shows up quite often in the above timer resolution log.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">timeGetTime:</span>
+  <span class="nf">sub</span>         <span class="nb">rsp</span><span class="p">,</span><span class="mh">28h</span>  
+  <span class="nf">xor</span>         <span class="nb">r9d</span><span class="p">,</span><span class="nb">r9d</span>  
+  <span class="nf">lea</span>         <span class="nb">rdx</span><span class="p">,[</span><span class="nv">TimeInit</span><span class="p">]</span>  
+  <span class="nf">xor</span>         <span class="nb">r8d</span><span class="p">,</span><span class="nb">r8d</span>  
+  <span class="nf">lea</span>         <span class="nb">rcx</span><span class="p">,[</span><span class="nv">g_TimeInitOnce</span><span class="p">]</span>  
+  <span class="nf">call</span>        <span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">__imp_InitOnceExecuteOnce</span><span class="p">]</span>   <span class="c1">;Only run the init code once, from any thread within a given process</span>
+  <span class="nf">nop</span>         <span class="kt">dword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rax</span><span class="o">+</span><span class="nb">rax</span><span class="p">]</span>  
+  <span class="nf">mov</span>         <span class="nb">ecx</span><span class="p">,</span><span class="mh">7FFE0008h</span>                           <span class="c1">;last interrupt time</span>
+  <span class="nf">mov</span>         <span class="nb">rax</span><span class="p">,</span><span class="mh">346DC5D63886594Bh</span>                   <span class="c1">;fixed point multiply by 1/100000</span>
+  <span class="nf">mov</span>         <span class="nb">rcx</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rcx</span><span class="p">]</span>  
+  <span class="nf">sub</span>         <span class="nb">rcx</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">TimerData</span><span class="p">]</span>               <span class="c1">;subtract raw init time from TimerData  </span>
+  <span class="nf">imul</span>        <span class="nb">rcx</span>  
+  <span class="nf">sar</span>         <span class="nb">rdx</span><span class="p">,</span><span class="mh">0Bh</span>  
+  <span class="nf">mov</span>         <span class="nb">rax</span><span class="p">,</span><span class="nb">rdx</span>  
+  <span class="nf">shr</span>         <span class="nb">rax</span><span class="p">,</span><span class="mh">3Fh</span>  
+  <span class="nf">add</span>         <span class="nb">rax</span><span class="p">,</span><span class="nb">rdx</span>  
+  <span class="nf">add</span>         <span class="nb">eax</span><span class="p">,</span><span class="kt">dword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">TimerData</span><span class="o">+</span><span class="mh">8h</span><span class="p">]</span>            <span class="c1">;add on the init time in ms from TimerData+8 </span>
+  <span class="nf">add</span>         <span class="nb">rsp</span><span class="p">,</span><span class="mh">28h</span>  
+  <span class="nf">ret</span>  
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">timeGetTime</code> just returns a scaled and offset version of the 64bit interrupt time.</p>
+
+<p>The multimedia timers are significantly better than <code class="language-plaintext highlighter-rouge">GetTickCount</code> but there is no point in using them in new code, there is far less cpu overhead in using <code class="language-plaintext highlighter-rouge">QueryInterruptTime</code> and you get 100ns resolution. You are still at the whim of the kernel timer interrupt interval if you don’t set it yourself.</p>
+
+<p>Using <code class="language-plaintext highlighter-rouge">QueryInterruptTime</code> after setting the timer resolution to 0.5ms:</p>
+
+<div class="language-c++ highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
+<span class="p">{</span>
+  <span class="n">ULONG</span> <span class="n">currentRes</span><span class="p">;</span>
+  <span class="n">NtSetTimerResolution</span><span class="p">(</span><span class="mi">5000</span><span class="p">,</span> <span class="n">TRUE</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">currentRes</span><span class="p">);</span>
+  
+  <span class="kt">uint64_t</span> <span class="n">old_tick</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+  <span class="p">{</span>
+    <span class="kt">uint64_t</span> <span class="n">tick</span><span class="p">;</span>
+    <span class="n">QueryInterruptTime</span><span class="p">(</span><span class="o">&amp;</span><span class="n">tick</span><span class="p">);</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">tick</span> <span class="o">!=</span> <span class="n">old_tick</span><span class="p">)</span>
+    <span class="p">{</span>
+      <span class="kt">double</span> <span class="n">delta</span> <span class="o">=</span> <span class="p">(</span><span class="kt">double</span><span class="p">)(</span><span class="n">tick</span> <span class="o">-</span> <span class="n">old_tick</span><span class="p">)</span> <span class="o">/</span> <span class="mf">10000.0</span><span class="p">;</span>
+      <span class="n">printf</span><span class="p">(</span><span class="s">"delta = %0.6f</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">delta</span><span class="p">);</span>
+      <span class="n">old_tick</span> <span class="o">=</span> <span class="n">tick</span><span class="p">;</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>The result is a very stable timer, the the kernel interrupt is within a few microseconds of the expected time, quite respectable even if it isn’t standard. Half a millisecond is the smallest interval that can be measured and this still can’t accurately measure a 16.6ms video frame.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>delta = 0.500100
+delta = 0.502400
+delta = 0.497900
+delta = 0.499500
+delta = 0.500200
+delta = 0.500200
+delta = 0.499800
+delta = 0.500400
+delta = 0.499600
+</code></pre></div></div>
+
+<p>The biggest problem with all of the above examples is the time reference is interrupt driven. We need an API that returns a high resolition time stamp and the time the function was called.</p>
+
+<hr />
+
+<p>Windows provides an API called <code class="language-plaintext highlighter-rouge">GetSystemTimeAsFileTime</code> which returns the current time as a file time.  Within Windows, system time and file time are both in units of 100ns. the difference is system time is the elapsed time since boot, while file time is the elapsed time since the Windows epoch (Jan 1st 1601). However this API is also driven by the same timer interrupt timestamp but instead of reading <code class="language-plaintext highlighter-rouge">0x7FFE0008</code> which is the system timestamp, it reads <code class="language-plaintext highlighter-rouge">0x7FFE0014</code> which is the file time timestamp of the last timer interrupt.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">; This API splits the 64bit result in to a pair of 32bit values</span>
+<span class="c1">; instead of directly returning a 64bit value. Why? Legacy!</span>
+<span class="nl">GetSystemTimeAsFileTime:</span>
+  <span class="nf">mov</span>         <span class="nb">eax</span><span class="p">,</span><span class="mh">7FFE0014h</span>  
+  <span class="nf">mov</span>         <span class="nb">rax</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rax</span><span class="p">]</span>  
+  <span class="nf">mov</span>         <span class="kt">dword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rcx</span><span class="p">],</span><span class="nb">eax</span>  
+  <span class="nf">shr</span>         <span class="nb">rax</span><span class="p">,</span><span class="mh">20h</span>  
+  <span class="nf">mov</span>         <span class="kt">dword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rcx</span><span class="o">+</span><span class="mi">4</span><span class="p">],</span><span class="nb">eax</span>  
+  <span class="nf">ret</span>  
+</code></pre></div></div>
+
+<p>This function is still interrupt driven and isn’t any more useful than <code class="language-plaintext highlighter-rouge">QueryInterruptTime</code>, its just a different start time. But, there is a precise version called <code class="language-plaintext highlighter-rouge">GetSystemTimePreciseAsFileTime</code>. This function is an unholy mix of the interrupt time and <code class="language-plaintext highlighter-rouge">RtlQueryPerformanceCounter</code> - it takes the difference between the current performance counter and the last interrupt and does a bunch of math to return it in 100ns units.</p>
+
+<p><code class="language-plaintext highlighter-rouge">GetSystemTimePreciseAsFileTime</code> is actually a wrapper for <code class="language-plaintext highlighter-rouge">rtlGetSystemTimePrecise</code>:</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">RtlGetSystemTimePrecise:</span>
+  <span class="nf">mov</span>         <span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">10h</span><span class="p">],</span><span class="nb">rbx</span>  
+  <span class="nf">mov</span>         <span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">18h</span><span class="p">],</span><span class="nb">rbp</span>  
+  <span class="nf">mov</span>         <span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">20h</span><span class="p">],</span><span class="nb">rsi</span>  
+  <span class="nf">push</span>        <span class="nb">rdi</span>  
+  <span class="nf">push</span>        <span class="nv">r12</span>  
+  <span class="nf">push</span>        <span class="nv">r13</span>  
+  <span class="nf">push</span>        <span class="nv">r14</span>  
+  <span class="nf">push</span>        <span class="nv">r15</span>  
+  <span class="nf">sub</span>         <span class="nb">rsp</span><span class="p">,</span><span class="mh">20h</span>  
+  <span class="nf">mov</span>         <span class="nb">edi</span><span class="p">,</span><span class="mh">7FFE0358h</span>         
+  <span class="nf">lea</span>         <span class="nb">r12d</span><span class="p">,[</span><span class="nb">rdi</span><span class="o">-</span><span class="mh">18h</span><span class="p">]</span>  
+  <span class="nf">lea</span>         <span class="nb">r13d</span><span class="p">,[</span><span class="nb">rdi</span><span class="o">-</span><span class="mh">10h</span><span class="p">]</span>
+<span class="nl">retry2:</span>  
+  <span class="nf">mov</span>         <span class="nb">eax</span><span class="p">,</span><span class="mh">7FFE0368h</span>  
+  <span class="nf">mov</span>         <span class="nb">ecx</span><span class="p">,</span><span class="mh">7FFE0014h</span>
+<span class="nl">retry1:</span>  
+  <span class="nf">mov</span>         <span class="nb">rbx</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">r12</span><span class="p">]</span>                              <span class="c1">;0x340 - kernel timer counter + lock</span>
+  <span class="nf">test</span>        <span class="nb">bl</span><span class="p">,</span><span class="mi">1</span>  
+  <span class="nf">jne</span>         <span class="nv">pause1</span>                                           <span class="c1">;if the lock in the bottom bit of 0x340 is set, pause and try again (aka locked)</span>
+  <span class="nf">mov</span>         <span class="nv">r14</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rcx</span><span class="p">]</span>                              <span class="c1">;load system time for last interrupt  </span>
+  <span class="nf">lea</span>         <span class="nb">rcx</span><span class="p">,[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">50h</span><span class="p">]</span>                                    <span class="c1">;result location of RtlQueryPerformanceCounter</span>
+  <span class="nf">mov</span>         <span class="nb">rbp</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">r13</span><span class="p">]</span>                              <span class="c1">;baseline qpc interrupt time</span>
+  <span class="nf">mov</span>         <span class="nv">r15</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rdi</span><span class="p">]</span>                              <span class="c1">;qpc system time increment</span>
+  <span class="nf">mov</span>         <span class="nb">si</span><span class="nv">l</span><span class="p">,</span><span class="kt">byte</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rax</span><span class="p">]</span>                               <span class="c1">;time shift</span>
+  <span class="nf">call</span>        <span class="nv">RtlQueryPerformanceCounter</span>                       <span class="c1">;get the qpc time stamp</span>
+  <span class="nf">nop</span>  
+  <span class="nf">mov</span>         <span class="nb">rax</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">r12</span><span class="p">]</span>                              <span class="c1">;reload the interrupt counter/lock from 0x340</span>
+  <span class="nf">cmp</span>         <span class="nb">rax</span><span class="p">,</span><span class="nb">rbx</span>  
+  <span class="nf">jne</span>         <span class="nv">pause2</span>                                           <span class="c1">;if a timer interrupt has occurred or the lock has changed, spin and try again  </span>
+  <span class="nf">mov</span>         <span class="nb">rdx</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">50h</span><span class="p">]</span>                          <span class="c1">;result of RtlQueryPerformanceCounter</span>
+  <span class="nf">mov</span>         <span class="nb">edi</span><span class="p">,</span><span class="mi">0</span>                                            <span class="c1">;delta time from last interrupt</span>
+  <span class="nf">cmp</span>         <span class="nb">rdx</span><span class="p">,</span><span class="nb">rbp</span>                                          <span class="c1">;current qpc vs qpc interrupt time  </span>
+  <span class="nf">jbe</span>         <span class="nv">comp_result</span>                                      <span class="c1">;qpc is below or equal (shouldn't happen), delta is zero, return the last interrupt</span>
+  <span class="nf">sub</span>         <span class="nb">rdx</span><span class="p">,</span><span class="nb">rbp</span>                                          <span class="c1">;qpc delta since last interrupt		</span>
+  <span class="nf">dec</span>         <span class="nb">rdx</span>	                                   
+  <span class="nf">test</span>        <span class="nb">si</span><span class="nv">l</span><span class="p">,</span><span class="nb">si</span><span class="nv">l</span>  
+  <span class="nf">je</span>          <span class="nv">skip_shift</span>                                       <span class="c1">;if shift is zero, skip shifting</span>
+  <span class="nf">mov</span>         <span class="nb">cl</span><span class="p">,</span><span class="nb">si</span><span class="nv">l</span>  
+  <span class="nf">shl</span>         <span class="nb">rdx</span><span class="p">,</span><span class="nb">cl</span>                                           <span class="c1">;shift qpc delta by the shift amount</span>
+<span class="nl">skip_shift:</span>
+  <span class="nf">mov</span>         <span class="nb">rax</span><span class="p">,</span><span class="nv">r15</span>                                          <span class="c1">;qpc system time increment  </span>
+  <span class="nf">mul</span>         <span class="nb">rax</span><span class="p">,</span><span class="nb">rdx</span>                                          <span class="c1">;multiply the time delta by the time increment to compute 100ns  </span>
+  <span class="nf">mov</span>         <span class="nb">rdi</span><span class="p">,</span><span class="nb">rdx</span>  
+  <span class="nf">mov</span>         <span class="nb">rbx</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">58h</span><span class="p">]</span>  
+<span class="nl">comp_result:</span>
+  <span class="nf">lea</span>         <span class="nb">rax</span><span class="p">,[</span><span class="nv">r14</span><span class="o">+</span><span class="nb">rdi</span><span class="p">]</span>                                    <span class="c1">;add 100ns unit delta time to the baseline interrupt time in 100ns</span>
+  <span class="nf">mov</span>         <span class="nb">rbp</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">60h</span><span class="p">]</span>  
+  <span class="nf">mov</span>         <span class="nb">rsi</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">68h</span><span class="p">]</span>  
+  <span class="nf">add</span>         <span class="nb">rsp</span><span class="p">,</span><span class="mh">20h</span>  
+  <span class="nf">pop</span>         <span class="nv">r15</span>  
+  <span class="nf">pop</span>         <span class="nv">r14</span>  
+  <span class="nf">pop</span>         <span class="nv">r13</span>  
+  <span class="nf">pop</span>         <span class="nv">r12</span>  
+  <span class="nf">pop</span>         <span class="nb">rdi</span>  
+  <span class="nf">ret</span>  
+  <span class="nf">int</span>         <span class="mi">3</span>  
+<span class="nl">pause1:</span>
+  <span class="nf">pause</span>  
+  <span class="nf">jmp</span>         <span class="nv">retry1</span>   
+<span class="nl">pause2:</span>
+  <span class="nf">pause</span>  
+  <span class="nf">jmp</span>         <span class="nv">retry2</span>
+</code></pre></div></div>
+<blockquote>
+  <p>This function uses address <code class="language-plaintext highlighter-rouge">0x7FFE0340</code> which is the incrementing tick count of the kernel timer interrupt. This counter is shifted left one bit so it appears to increment by 2, the bottom bit is a lock bit. 
+It’s very difficult to catch the lock bit set but I believe it is set while the kernel interrupt executes to indicate the timer values are changing. 
+There are a lot of timer related values within <code class="language-plaintext highlighter-rouge">kuser_shared</code> and they can’t all be updated atomically, especially from a multi-processor point of view.</p>
+</blockquote>
+
+<p>On older versions of Windows <code class="language-plaintext highlighter-rouge">RtlGetSystemTimePrecise</code> was a great option to get consistent 100ns time stamps, even though its technically not documented.</p>
+
+<p>100ns is the standard unit of time in Windows NT, wouldn’t it make sense for <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> to return the same 100ns units? It doesn’t, well it does sometimes and there is no good reason why. Sure over the years it has used a range hardware timer sources but the API could have just done a multiply to rescale the result (this is what clock_gettime() on Mac and Linux do). I understand they were trying to return the most accurate time stamp with the lowest overhead but at best this moved the scale operation to application code, at worst it caused problems when programmers got it wrong or made assumptions.</p>
+
+<p>The frequency of <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> can be obtained via <code class="language-plaintext highlighter-rouge">QueryPerformanceFrequency</code> and all this does is load and return the 64bit value at <code class="language-plaintext highlighter-rouge">0x7FEE0300</code> which is set by the kernel once at boot and never changes at runtime. The frequency is guaranteed to be consistent across all processors for a single boot session and will always have resolution greater than 1us.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">QueryPerformanceFrequency:</span>
+  <span class="nf">mov</span>         <span class="nb">rax</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="mh">7FFE0300h</span><span class="p">]</span>  
+  <span class="nf">mov</span>         <span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rcx</span><span class="p">],</span><span class="nb">rax</span>  
+  <span class="nf">mov</span>         <span class="nb">eax</span><span class="p">,</span><span class="mi">1</span>  
+  <span class="nf">ret</span> 
+</code></pre></div></div>
+
+<p>When does <code class="language-plaintext highlighter-rouge">QueryPerformanmceCounter</code> return a fixed 10Mhz? Lets look at the code?</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">QueryPerformanceCounter:</span>
+  <span class="nf">mov</span>         <span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mi">8</span><span class="p">],</span><span class="nb">rbx</span>  
+  <span class="nf">push</span>        <span class="nb">rdi</span>  
+  <span class="nf">sub</span>         <span class="nb">rsp</span><span class="p">,</span><span class="mh">20h</span>  
+  <span class="nf">mov</span>         <span class="nb">eax</span><span class="p">,</span><span class="mh">7FFE03C6h</span>                     <span class="c1">;qpc flags address</span>
+  <span class="nf">mov</span>         <span class="nb">rbx</span><span class="p">,</span><span class="nb">rcx</span>  
+  <span class="nf">movzx</span>       <span class="nb">r9d</span><span class="p">,</span><span class="kt">byte</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rax</span><span class="p">]</span>                <span class="c1">;load qpc flags</span>
+  <span class="nf">test</span>        <span class="nb">r9b</span><span class="p">,</span><span class="mi">1</span>                             <span class="c1">;check bypass syscall  </span>
+  <span class="nf">je</span>          <span class="nv">use_syscall</span>                       <span class="c1">;NtQueryPerformanceCounter (syscall 31h)</span>
+  <span class="nf">mov</span>         <span class="nb">r11d</span><span class="p">,</span><span class="mh">7FFE03B8h</span>                    <span class="c1">;qpc bias address</span>
+  <span class="nf">mov</span>         <span class="nv">r11</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">r11</span><span class="p">]</span>               <span class="c1">;load qpc bias </span>
+  <span class="nf">test</span>        <span class="nb">r9b</span><span class="p">,</span><span class="mi">2</span>                             <span class="c1">;check qpc flags for using hypervisor page</span>
+  <span class="nf">je</span>          <span class="nv">no_hyperv</span>                         <span class="c1">;no hypervisor page</span>
+
+  <span class="nf">mov</span>         <span class="nv">r8</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="mh">7FFBB84332A8h</span><span class="p">]</span>      <span class="c1">;RtlpHypervisorSharedUserVa = 000000007FFE1000</span>
+  <span class="nf">test</span>        <span class="nv">r8</span><span class="p">,</span><span class="nv">r8</span>                             <span class="c1">;is the hypervisor page null??</span>
+  <span class="nf">je</span>          <span class="nv">use_syscall</span>                       <span class="c1">;if null, use syscall</span>
+<span class="nl">loop_hyperv:</span>
+  <span class="nf">mov</span>         <span class="nb">r10d</span><span class="p">,</span><span class="kt">dword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">r8</span><span class="p">]</span>               <span class="c1">;load cookie from RtlpHypervisorSharedUserVa+0</span>
+  <span class="nf">test</span>        <span class="nb">r10d</span><span class="p">,</span><span class="nb">r10d</span>                         <span class="c1">;is the cookie zero?</span>
+  <span class="nf">je</span>          <span class="nv">use_syscall</span>                       <span class="c1">;if cookie is zero use syscall</span>
+  <span class="nf">test</span>        <span class="nb">r9b</span><span class="p">,</span><span class="nb">r9b</span>                           <span class="c1">;is rdtscp available? </span>
+  <span class="nf">jns</span>         <span class="nv">use_rdtsc_hyperv</span>                  <span class="c1">;if no use rdtsc and some combo of lfence/mfence</span>
+  <span class="nf">rdtscp</span>  
+<span class="nl">rdtsc_result_hyperv:</span>
+  <span class="nf">shl</span>         <span class="nb">rdx</span><span class="p">,</span><span class="mh">20h</span>  
+  <span class="nf">or</span>          <span class="nb">rdx</span><span class="p">,</span><span class="nb">rax</span>                           <span class="c1">;make 64bit result from rdtsc  </span>
+  <span class="nf">mov</span>         <span class="nb">rax</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">r8</span><span class="o">+</span><span class="mi">8</span><span class="p">]</span>              <span class="c1">;load scale at RtlpHypervisorSharedUserVa+8  </span>
+  <span class="nf">mov</span>         <span class="nb">rcx</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">r8</span><span class="o">+</span><span class="mh">10h</span><span class="p">]</span>            <span class="c1">;load offset at RtlpHypervisorSharedUserVa+16</span>
+  <span class="nf">mul</span>         <span class="nb">rax</span><span class="p">,</span><span class="nb">rdx</span>                           <span class="c1">;multiply by scale</span>
+  <span class="nf">mov</span>         <span class="nb">eax</span><span class="p">,</span><span class="kt">dword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nv">r8</span><span class="p">]</span>                <span class="c1">;reload cookie from RtlpHypervisorSharedUserVa+0</span>
+  <span class="nf">add</span>         <span class="nb">rdx</span><span class="p">,</span><span class="nb">rcx</span>                           <span class="c1">;add the offset</span>
+  <span class="nf">cmp</span>         <span class="nb">eax</span><span class="p">,</span><span class="nb">r10d</span>                
+  <span class="nf">jne</span>         <span class="nv">loop_hyperv</span>                       <span class="c1">;do again if hypervisor cookie as changed, maybe the scale/offset changed.</span>
+
+<span class="nl">compute_result:</span>
+  <span class="nf">mov</span>         <span class="nb">cl</span><span class="p">,</span><span class="kt">byte</span> <span class="nv">ptr</span> <span class="p">[</span><span class="mh">7FFE03C7h</span><span class="p">]</span>           <span class="c1">;load qpc shift</span>
+  <span class="nf">lea</span>         <span class="nb">rax</span><span class="p">,[</span><span class="nb">rdx</span><span class="o">+</span><span class="nv">r11</span><span class="p">]</span>                     <span class="c1">;add on qpc bias</span>
+  <span class="nf">shr</span>         <span class="nb">rax</span><span class="p">,</span><span class="nb">cl</span>                            <span class="c1">;shift the result right</span>
+  <span class="nf">mov</span>         <span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rbx</span><span class="p">],</span><span class="nb">rax</span>               <span class="c1">;store result  </span>
+  <span class="nf">mov</span>         <span class="nb">eax</span><span class="p">,</span><span class="mi">1</span>                             <span class="c1">;return true</span>
+  <span class="nf">mov</span>         <span class="nb">rbx</span><span class="p">,</span><span class="kt">qword</span> <span class="nv">ptr</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">30h</span><span class="p">]</span>  
+  <span class="nf">add</span>         <span class="nb">rsp</span><span class="p">,</span><span class="mh">20h</span>  
+  <span class="nf">pop</span>         <span class="nb">rdi</span>  
+  <span class="nf">ret</span>  
+
+<span class="c1">;main code path if the hypervisor isn't being used</span>
+<span class="nl">no_hyperv:</span>
+  <span class="nf">test</span>        <span class="nb">r9b</span><span class="p">,</span><span class="nb">r9b</span>                       <span class="c1">;is rdtscp available</span>
+  <span class="nf">jns</span>         <span class="nv">use_rdtsc</span>                     <span class="c1">;if not, use rdtsc</span>
+  <span class="nf">rdtscp</span> 
+<span class="nl">rdtsc_result:</span>                               <span class="c1">;if using rdtsc, it returns here</span>
+  <span class="nf">shl</span>         <span class="nb">rdx</span><span class="p">,</span><span class="mh">20h</span>  
+  <span class="nf">or</span>          <span class="nb">rdx</span><span class="p">,</span><span class="nb">rax</span>                       <span class="c1">;make 64bit value </span>
+  <span class="nf">jmp</span>         <span class="nv">compute_result</span>                <span class="c1">;compute final result and return</span>
+
+<span class="c1">;this is the hypervisor rdtsc path, identical to below, we just check sync flags prior to rdtsc</span>
+<span class="nl">use_rdtsc_hyperv:</span>
+  <span class="nf">test</span>        <span class="nb">r9b</span><span class="p">,</span><span class="mh">20h</span>                       <span class="c1">;use lfence?</span>
+  <span class="nf">je</span>          <span class="nv">no_lfence_hyperv</span>  
+  <span class="nf">lfence</span>  
+  <span class="nf">jmp</span>         <span class="nv">read_tsc_hyperv</span>  
+<span class="nl">no_lfence_hyperv:</span>
+  <span class="nf">test</span>        <span class="nb">r9b</span><span class="p">,</span><span class="mh">10h</span>                       <span class="c1">;use mfence?</span>
+  <span class="nf">je</span>          <span class="nv">read_tsc_hyperv</span>  
+  <span class="nf">mfence</span>  
+<span class="nl">read_tsc_hyperv:</span>
+  <span class="nf">rdtsc</span>  
+  <span class="nf">jmp</span>         <span class="nv">rdtsc_result_hyperv</span> 
+
+<span class="c1">;this is none hypervisor rdtsc, we might need a sync instruction before the rdtsc</span>
+<span class="nl">use_rdtsc:</span>
+  <span class="nf">test</span>        <span class="nb">r9b</span><span class="p">,</span><span class="mh">20h</span>                       <span class="c1">;use lfence for sync</span>
+  <span class="nf">je</span>          <span class="nv">skip_lfence</span>  
+  <span class="nf">lfence</span>  
+  <span class="nf">jmp</span>         <span class="nv">read_tsc</span>
+<span class="nl">skip_lfence:</span>
+  <span class="nf">test</span>        <span class="nb">r9b</span><span class="p">,</span><span class="mh">10h</span>                       <span class="c1">;use mfence for sync</span>
+  <span class="nf">je</span>          <span class="nv">read_tsc</span>  
+  <span class="nf">mfence</span>
+<span class="nl">read_tsc:</span>  
+  <span class="nf">rdtsc</span>  
+  <span class="nf">jmp</span>         <span class="nv">rdtsc_result</span>  
+<span class="nl">use_syscall:</span>
+  <span class="nf">....</span>                
+</code></pre></div></div>
+
+<blockquote>
+  <p>Like many other APIs <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> has a native equivalent called <code class="language-plaintext highlighter-rouge">NtQueryPerformanceCounter</code>. The big difference is that <code class="language-plaintext highlighter-rouge">NtQueryPerformanceCounter</code> is <em>always</em> a syscall to the kernel, even though it computes the exact same result.</p>
+</blockquote>
+
+<p>Dissecting the above code there are a few different paths but ultimately only 2 modes of operation. It’s either a syscall or some derivative of the TSC read with either <code class="language-plaintext highlighter-rouge">RDTSC</code> or <code class="language-plaintext highlighter-rouge">RDTSCP</code>. The difference between these two almost identical instructions is the original <code class="language-plaintext highlighter-rouge">RDTSC</code> is a speculative instruction, it doesn’t necessarily wait until all previous instructions to execute before reading the counter. Similarly, subsequent instructions may begin executing before the timer is read. This can cause problems if the programmer expects the timestamp to be take at the exact location of the instruction. Making this instruction behave requires some form of synchronization instruction:</p>
+
+<ul>
+  <li>If software requires <code class="language-plaintext highlighter-rouge">RDTSC</code> to be executed only after all previous instructions have executed on Intel platforms, it can execute <code class="language-plaintext highlighter-rouge">LFENCE</code> immediately before <code class="language-plaintext highlighter-rouge">RDTSC</code>.</li>
+  <li>If software requires <code class="language-plaintext highlighter-rouge">RDTSC</code> to be executed only after all previous instructions have executed on AMD platforms, it can execute <code class="language-plaintext highlighter-rouge">MFENCE</code> immediately before <code class="language-plaintext highlighter-rouge">RDTSC</code>. Technically this is slower than the Intel solution as it waits until all previous loads and stores are globally visible. Executing <code class="language-plaintext highlighter-rouge">LFENCE</code> on AMD hardware doesn’t synchronize as intended.</li>
+  <li>If software requires <code class="language-plaintext highlighter-rouge">RDTSC</code> to be executed prior to execution of any subsequent instruction, it can execute <code class="language-plaintext highlighter-rouge">LFENCE</code> immediately after <code class="language-plaintext highlighter-rouge">RDTSC</code>.</li>
+</ul>
+
+<p><code class="language-plaintext highlighter-rouge">RDTSCP</code> [Available when <code class="language-plaintext highlighter-rouge">CPUID.80000001h:EDX[27]</code>, is set] is a none speculative version of <code class="language-plaintext highlighter-rouge">RDTSC</code>, equivalent to the first two items above. It waits for all prior instructions to execute before reading the timer and it works the same on AMD and Intel hardware. It doesn’t prevent future instructions from starting to execute, which software can prevent by executing <code class="language-plaintext highlighter-rouge">LFENCE</code> after <code class="language-plaintext highlighter-rouge">RDTSCP</code> (item 3 above).</p>
+
+<p>A feature of this newer instruction, unrelated to timers, is the model specific register IA32_TSC_AUX is returned in register ECX, the windows scheduler puts the processor ID in this register, which software can use to determine if your thread is hopping processors (linux does something similar but its entirely dependent on the operating system to set this model specific register).</p>
+
+<p>Going back to QueryPerformanceCounter, you can see all of the above options being used, the code flow is controlled by the QPC flags at <code class="language-plaintext highlighter-rouge">0x7FFE03C6h</code>, the DDK names the various flags as follows:</p>
+
+<p><code class="language-plaintext highlighter-rouge">SHARED_GLOBAL_FLAGS_QPC_BYPASS_ENABLED = 0x01</code> Set if QPC should bypass the syscall and use the timestamp instructions, this will only be set if the timestamp is invariant. This flag first appeared in Window8.1. If this bit is clear QPC just calls <code class="language-plaintext highlighter-rouge">NtQueryPerformanceCounter</code> which is always a syscall, this allows motherboard timers to be used which are only accessible from kernel mode. If the bypass is not enabled then <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> is always a system call with significant cpu overhead, making it somewhat unsuitable for high frequency operations as a single call can take a few microseconds to execute (many thousands of clock cycles).</p>
+
+<p><code class="language-plaintext highlighter-rouge">SHARED_GLOBAL_FLAGS_QPC_BYPASS_USE_HV_PAGE = 0x02</code> If set QPC uses the hypervisor page, this new memory page showed in Windows 10 v1607 and is mapped to all processes much the same way as <code class="language-plaintext highlighter-rouge">kuser_shared</code>. The memory page is used to apply a scale and offset to normalize the frequency to 10MHz (100ns units). This normalization can only occur if the hypervisor page is present so earlier versions of windows will not return a fixed 10Mhz.</p>
+
+<p><code class="language-plaintext highlighter-rouge">SHARED_GLOBAL_FLAGS_QPC_BYPASS_USE_MFENCE = 0x10</code> Use <code class="language-plaintext highlighter-rouge">MFENCE</code> for synchronization, not checked if <code class="language-plaintext highlighter-rouge">RDTSCP</code> is used, only used on AMD processors</p>
+
+<p><code class="language-plaintext highlighter-rouge">SHARED_GLOBAL_FLAGS_QPC_BYPASS_USE_LFENCE = 0x20</code> Use <code class="language-plaintext highlighter-rouge">LFENCE</code> for synchronization, not checked if <code class="language-plaintext highlighter-rouge">RDTDCP</code> is used, only used on Intel processors</p>
+
+<p><code class="language-plaintext highlighter-rouge">SHARED_GLOBAL_FLAGS_QPC_BYPASS_USE_RDTSCP = 0x80</code> If this is set <code class="language-plaintext highlighter-rouge">RDTSCP</code> is available and will be used in place of <code class="language-plaintext highlighter-rouge">RDTSC</code> and syncrhonization.</p>
+
+<p>Versions of Windows after windows 10 build 1607 (Anniversary update in 2016) seem to always have the <code class="language-plaintext highlighter-rouge">SHARED_GLOBAL_FLAGS_QPC_BYPASS_USE_HV_PAGE</code> bit set and this is the code path that normalizes to 10Mhz. On any recent machine the expected code path is optimized for using RDTSCP with the hypervisor page, this is the code path that has no branches.</p>
+
+<blockquote>
+  <p>Windows 10/11 can be forced to use the old school HPET counter for <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code>. From an administrator terminal using <code class="language-plaintext highlighter-rouge">bcdedit /set useplatformclock true</code>. While this could be useful for testing as it completely channges the behaviour of <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code>, I recommend you don’t leave this boot variable set, it can have some nasty side effects. Use <code class="language-plaintext highlighter-rouge">bcdedit /deletevalue useplatformclock</code> to delete the variable and go back to the default. You need to reboot after changing this setting.</p>
+</blockquote>
+
+<hr />
+
+<p>What is this hypervisor page??  Unfortunately, there isn’t much information on it. It first appeared in anniversary update of windows 10 (version 1607) it seems to only be used by <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code>. It’s address isn’t fixed but on all the machines tested it always shows up very close to <code class="language-plaintext highlighter-rouge">kuser_shared</code>, on this test machine it is directly after the kernel page at <code class="language-plaintext highlighter-rouge">0x7ffe1000</code>. You can query the local process address by using native API <code class="language-plaintext highlighter-rouge">NtQuerySystemInformation</code> with query class ID <code class="language-plaintext highlighter-rouge">0xc5</code>.</p>
+
+<div class="language-c++ highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  <span class="k">extern</span> <span class="s">"C"</span> <span class="n">NTSYSAPI</span> <span class="n">NTSTATUS</span> <span class="n">NTAPI</span>  <span class="nf">NtQuerySystemInformation</span><span class="p">(</span>
+    <span class="n">ULONG</span>   <span class="n">SystemInformationClass</span><span class="p">,</span>
+    <span class="n">PVOID</span>   <span class="n">SystemInformation</span><span class="p">,</span>
+    <span class="n">ULONG</span>   <span class="n">SystemInformationLength</span><span class="p">,</span>
+    <span class="n">PULONG</span>  <span class="n">ReturnLength</span>
+  <span class="p">);</span>
+
+  <span class="kt">void</span><span class="o">*</span> <span class="nf">GetHypervisorPageAddress</span><span class="p">()</span>
+  <span class="p">{</span>
+    <span class="kt">void</span><span class="o">*</span> <span class="n">system_info</span><span class="p">;</span>
+    <span class="n">ULONG</span> <span class="n">res_size</span><span class="p">;</span>
+    <span class="n">NTSTATUS</span> <span class="n">result</span> <span class="o">=</span> <span class="n">NtQuerySystemInformation</span><span class="p">(</span><span class="mh">0xC5</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">system_info</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">system_info</span><span class="p">),</span> <span class="o">&amp;</span><span class="n">res_size</span><span class="p">);</span>
+
+    <span class="k">if</span> <span class="p">((</span><span class="n">result</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;&amp;</span> <span class="p">(</span><span class="n">res_size</span> <span class="o">==</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">system_info</span><span class="p">)))</span>
+    <span class="p">{</span>
+      <span class="k">return</span> <span class="n">system_info</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="p">}</span>
+</code></pre></div></div>
+
+<p>Now we can write some code to dump out the known data in the hypervisor page, and compute the TSC frequency as seen by the operating system.</p>
+
+<div class="language-c++ highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
+<span class="p">{</span>
+  <span class="c1">//known elements of the hypervisor page</span>
+  <span class="k">struct</span> <span class="nc">HypervisorPage</span>
+  <span class="p">{</span>
+    <span class="kt">uint32_t</span>  <span class="n">cookie</span><span class="p">;</span>
+    <span class="kt">uint32_t</span>  <span class="n">unused</span><span class="p">;</span> <span class="c1">//maybe cookie is 64bits but it's currently loaded as 32bits</span>
+    <span class="kt">uint64_t</span>  <span class="n">rdtsc_scale</span><span class="p">;</span>
+    <span class="kt">uint64_t</span>  <span class="n">rdtsc_offset</span><span class="p">;</span>
+  <span class="p">};</span>
+
+  <span class="c1">//use the above function</span>
+  <span class="n">HypervisorPage</span><span class="o">*</span> <span class="n">hv</span> <span class="o">=</span> <span class="p">(</span><span class="n">HypervisorPage</span><span class="o">*</span><span class="p">)</span><span class="n">GetHypervisorPageAddress</span><span class="p">();</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">hv</span><span class="p">)</span>
+  <span class="p">{</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"cookie: %x</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">hv</span><span class="o">-&gt;</span><span class="n">cookie</span><span class="p">);</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"rdtsc_scale: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">hv</span><span class="o">-&gt;</span><span class="n">rdtsc_scale</span><span class="p">);</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"rdtsc_offset: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">hv</span><span class="o">-&gt;</span><span class="n">rdtsc_offset</span><span class="p">);</span>
+
+    <span class="c1">//compute the tsc speed as an integer with 32bits of fraction</span>
+    <span class="kt">int64_t</span> <span class="n">rem</span><span class="p">;</span>
+    <span class="kt">int64_t</span> <span class="n">tsc_int</span> <span class="o">=</span> <span class="n">_div128</span><span class="p">((</span><span class="mi">1ULL</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="p">),</span> <span class="mi">0</span><span class="p">,</span> <span class="n">hv</span><span class="o">-&gt;</span><span class="n">rdtsc_scale</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">rem</span><span class="p">);</span> 
+
+    <span class="c1">//convert to a double</span>
+    <span class="kt">double</span> <span class="n">tsc</span> <span class="o">=</span> <span class="p">(</span><span class="kt">double</span><span class="p">)</span><span class="n">tsc_int</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1ULL</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="p">);</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"tsc clock speed = %.6f"</span><span class="p">,</span> <span class="n">tsc</span><span class="o">*</span><span class="mf">10.0</span><span class="p">);</span> <span class="c1">//*10 for Mhz</span>
+
+    <span class="c1">//this is hacky but surprisingly accurate (only because rdtsc_scale fits in 53bits)</span>
+    <span class="c1">//double f = (double)0xffffffffffffffffULL / (double)hv-&gt;rdtsc_scale;</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>On my test machine rdtsc_scale is slighly different on every reboot so its probably being computed at startup, for example on the first boot <code class="language-plaintext highlighter-rouge">0x00b11b8333a4a9e5</code> which in 64bit fixed point is 1/370.035209, on the 2nd boot <code class="language-plaintext highlighter-rouge">0x00b11b77df38e17c</code> or 1/370.0355705, both are very close to the divosr required to get 100ns units from a processor with a base speed of 3.7GHz. Its not advised to use this code in a production environment to get the processor speed.</p>
+
+<p>Another time related use for <a href="https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntquerysysteminformation"><code class="language-plaintext highlighter-rouge">NtQuerySystemInformation</code></a> is to determine if <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> is going to use a syscall or if its going to stay in user mode.  Knowing a syscall is going to be used might change how you use <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code>.</p>
+
+<div class="language-c++ highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">bool</span> <span class="nf">DoesQPCBypassKernel</span><span class="p">()</span>
+<span class="p">{</span>
+  <span class="k">struct</span> <span class="nc">SYSTEM_QUERY_PERFORMANCE_COUNTER_INFORMATION</span>
+  <span class="p">{</span>
+    <span class="n">ULONG</span> <span class="n">Version</span><span class="p">;</span>
+
+    <span class="c1">//0x00000001 = kernelqpc</span>
+    <span class="n">ULONG</span> <span class="n">Flags</span><span class="p">;</span>
+    <span class="n">ULONG</span> <span class="n">ValidFlags</span><span class="p">;</span>
+  <span class="p">};</span>
+
+  <span class="n">SYSTEM_QUERY_PERFORMANCE_COUNTER_INFORMATION</span> <span class="n">qpc_info</span><span class="p">;</span>
+  <span class="n">ULONG</span> <span class="n">res_size</span><span class="p">;</span>
+
+  <span class="n">qpc_info</span><span class="p">.</span><span class="n">Version</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span> <span class="c1">//must set the version on input (only version=1 is defined)</span>
+  <span class="n">NTSTATUS</span> <span class="n">result</span> <span class="o">=</span> <span class="n">NtQuerySystemInformation</span><span class="p">(</span><span class="mh">0x7c</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">qpc_info</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">qpc_info</span><span class="p">),</span> <span class="o">&amp;</span><span class="n">res_size</span><span class="p">);</span>
+
+  <span class="k">if</span> <span class="p">((</span><span class="n">result</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;&amp;</span> <span class="p">(</span><span class="n">res_size</span> <span class="o">==</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">qpc_info</span><span class="p">)))</span>
+  <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">qpc_info</span><span class="p">.</span><span class="n">ValidFlags</span> <span class="o">&amp;</span> <span class="mh">0x1</span><span class="p">)</span>  <span class="c1">//is kernel flag valid</span>
+    <span class="p">{</span>
+      <span class="k">return</span> <span class="p">(</span><span class="n">qpc_info</span><span class="p">.</span><span class="n">Flags</span> <span class="o">&amp;</span> <span class="mh">0x1</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">;</span>  <span class="c1">//if valid it needs to be zero to bypass</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+
+  <span class="c1">//this is not actually false, but unknown</span>
+  <span class="k">return</span> <span class="nb">false</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<hr />
+
+<p>Have we come full circle? Why not use invariant timestamps with <code class="language-plaintext highlighter-rouge">RDTSCP</code>? If <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> is just a wrapper for <code class="language-plaintext highlighter-rouge">RDTSC/RDTSCP</code> then why not avoid all the overhead and execute the instructions directly? Is Microsoft correct in saying everybody should use QueryPerformanceCounter??? Well, it depends..</p>
+
+<p>On a modern machine, I don’t see any problem in using <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code>, especially if its bypassing the syscall, its plenty fast enough for anything other than maybe micro-profiling short sequences. <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> is future proof when used properly and the OS handles the edge cases and platform differences. For general time keeping, use <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> and use <code class="language-plaintext highlighter-rouge">RDTSCP</code> for micro profiling, or if thousands and thousands of timestamps are needed where just the overhead of the API calls is too much.</p>
+
+<p>Finally, the invariant TSC might appear to have the same counter frequency as the base processor speed but it certainly doesn’t increment at that speed. Typically the invariant TSC runs on a much slower, stable and always running reference clock, say 25MHz, or 50Mhz or 100MHz. The core counter increments at this reference speed adding whatever multiplier is required to match the base speed. On my test machine the amount added is 148 to give the impression of a 3.7GHz counter, from this we can calculate a reference clock of 25MHz. On Intel processors this incremnent rate is available from <code class="language-plaintext highlighter-rouge">CPUID 15h</code>. However, things are not that simple because <code class="language-plaintext highlighter-rouge">RDTSC</code> always returns a value that is monotonically incrementing so won’t return the same value twice if you call it back to back. How this is implemented with respect to the reference clock and what is actually returned is model specific - for example some Intel processors only return even numbers. While its safe to assume the invariant TSC is accurate with wall time over long periods, you probably don’t want to use it to profile ultra small sections of code, unless you know exactly how RDTSC is implemented on your particular processor.</p>]]></content><author><name>Rob Wyatt</name></author><category term="software" /><category term="windows" /><summary type="html"><![CDATA[Under the hood of windows timestamps, the details and the history]]></summary></entry></feed>
