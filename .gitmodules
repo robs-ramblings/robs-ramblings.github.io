@@ -1,3 +1,6 @@
 [submodule "rambling-code"]
 	path = rambling-code
 	url = https://github.com/robs-ramblings/code
+[submodule "code"]
+	path = code
+	url = https://github.com/robs-ramblings/code
