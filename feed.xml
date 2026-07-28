@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.4.1">Jekyll</generator><link href="https://robs-ramblings.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://robs-ramblings.github.io/" rel="alternate" type="text/html" /><updated>2026-04-24T10:14:44-06:00</updated><id>https://robs-ramblings.github.io/feed.xml</id><title type="html">Rob’s Ramblings</title><subtitle>Ramblings on tech, software, electronics, games, rendering, and anything else that interests me</subtitle><author><name>Rob Wyatt</name></author><entry><title type="html">Under the hood of Windows timestamps</title><link href="https://robs-ramblings.github.io/2026/04/20/timestamps.html" rel="alternate" type="text/html" title="Under the hood of Windows timestamps" /><published>2026-04-20T00:00:00-06:00</published><updated>2026-04-20T00:00:00-06:00</updated><id>https://robs-ramblings.github.io/2026/04/20/timestamps</id><content type="html" xml:base="https://robs-ramblings.github.io/2026/04/20/timestamps.html"><![CDATA[<p>Programmers have always needed reliable timestamps and elapsed time is considered a fundamental operating system service.  Windows is no different but providing reliable and accurate timestamps to a Windows application has made Microsoft jump through hoops for 40 years. You could say this seemingly simple task that every operating system supports has eluded them completely.</p>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.4.1">Jekyll</generator><link href="https://robs-ramblings.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://robs-ramblings.github.io/" rel="alternate" type="text/html" /><updated>2026-07-28T15:29:32-06:00</updated><id>https://robs-ramblings.github.io/feed.xml</id><title type="html">Rob’s Ramblings</title><subtitle>Ramblings on tech, software, electronics, games, rendering, and anything else that interests me</subtitle><author><name>Rob Wyatt</name></author><entry><title type="html">Under the hood of Windows timestamps</title><link href="https://robs-ramblings.github.io/2026/04/20/timestamps.html" rel="alternate" type="text/html" title="Under the hood of Windows timestamps" /><published>2026-04-20T00:00:00-06:00</published><updated>2026-04-20T00:00:00-06:00</updated><id>https://robs-ramblings.github.io/2026/04/20/timestamps</id><content type="html" xml:base="https://robs-ramblings.github.io/2026/04/20/timestamps.html"><![CDATA[<p>Programmers have always needed reliable timestamps and elapsed time is considered a fundamental operating system service.  Windows is no different but providing reliable and accurate timestamps to a Windows application has made Microsoft jump through hoops for 40 years. You could say this seemingly simple task that every operating system supports has eluded them completely.</p>
 
 <p>Even the early 8bit home computers had reliable access to time. Early game consoles without timers would use the display vsync as a time base -  this is why a lot of games ran faster when ported from PAL to NTSC. Regardless of the source, accurate elapsed time is essential.</p>
 
@@ -646,4 +646,604 @@ There are a lot of timer related values within <code class="language-plaintext h
 
 <p>On a modern machine, I don’t see any problem in using <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code>, especially if its bypassing the syscall, its plenty fast enough for anything other than maybe micro-profiling short sequences. <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> is future proof when used properly and the OS handles the edge cases and platform differences. For general time keeping, use <code class="language-plaintext highlighter-rouge">QueryPerformanceCounter</code> and use <code class="language-plaintext highlighter-rouge">RDTSCP</code> for micro profiling, or if thousands and thousands of timestamps are needed where just the overhead of the API calls is too much.</p>
 
-<p>Finally, the invariant TSC might appear to have the same counter frequency as the base processor speed but it certainly doesn’t increment at that speed. Typically the invariant TSC runs on a much slower, stable and always running reference clock, say 25MHz, or 50Mhz or 100MHz. The core counter increments at this reference speed adding whatever multiplier is required to match the base speed. On my test machine the amount added is 148 to give the impression of a 3.7GHz counter, from this we can calculate a reference clock of 25MHz. On Intel processors this incremnent rate is available from <code class="language-plaintext highlighter-rouge">CPUID 15h</code>. However, things are not that simple because <code class="language-plaintext highlighter-rouge">RDTSC</code> always returns a value that is monotonically incrementing so won’t return the same value twice if you call it back to back. How this is implemented with respect to the reference clock and what is actually returned is model specific - for example some Intel processors only return even numbers. While its safe to assume the invariant TSC is accurate with wall time over long periods, you probably don’t want to use it to profile ultra small sections of code, unless you know exactly how RDTSC is implemented on your particular processor.</p>]]></content><author><name>Rob Wyatt</name></author><category term="software" /><category term="windows" /><summary type="html"><![CDATA[Under the hood of windows timestamps, the details and the history]]></summary></entry></feed>
+<p>Finally, the invariant TSC might appear to have the same counter frequency as the base processor speed but it certainly doesn’t increment at that speed. Typically the invariant TSC runs on a much slower, stable and always running reference clock, say 25MHz, or 50Mhz or 100MHz. The core counter increments at this reference speed adding whatever multiplier is required to match the base speed. On my test machine the amount added is 148 to give the impression of a 3.7GHz counter, from this we can calculate a reference clock of 25MHz. On Intel processors this incremnent rate is available from <code class="language-plaintext highlighter-rouge">CPUID 15h</code>. However, things are not that simple because <code class="language-plaintext highlighter-rouge">RDTSC</code> always returns a value that is monotonically incrementing so won’t return the same value twice if you call it back to back. How this is implemented with respect to the reference clock and what is actually returned is model specific - for example some Intel processors only return even numbers. While its safe to assume the invariant TSC is accurate with wall time over long periods, you probably don’t want to use it to profile ultra small sections of code, unless you know exactly how RDTSC is implemented on your particular processor.</p>]]></content><author><name>Rob Wyatt</name></author><category term="software" /><category term="windows" /><summary type="html"><![CDATA[Under the hood of windows timestamps, the details and the history]]></summary></entry><entry><title type="html">Nanite Deep Dive</title><link href="https://robs-ramblings.github.io/2023/04/20/nanite.html" rel="alternate" type="text/html" title="Nanite Deep Dive" /><published>2023-04-20T00:00:00-06:00</published><updated>2023-04-20T00:00:00-06:00</updated><id>https://robs-ramblings.github.io/2023/04/20/nanite</id><content type="html" xml:base="https://robs-ramblings.github.io/2023/04/20/nanite.html"><![CDATA[<blockquote>
+  <p><code class="language-plaintext highlighter-rouge">It is currently June 2026. This post was written way back in 2023 for Unreal 5.0/5.1. While this post was correct at the time, and a lot of it still is correct at a high level, this was post was supposed to be about details so take it with a grain of salt because lot has changed in the years since. Maybe its time for a part#2 to detail the new features such as animated Nanite, tessellation, lighting, shadows??</code></p>
+</blockquote>
+
+<p>Nanite was a new addition to Unreal Engine 5.0 and is a system for rendering seemingly impossible amounts of ultra-high resolution geometry at real-time frame rates. Epic call it a “virtualized geometry system” and it rightfully got a lot of attention, a nanite scene could have millions of instances, that total billions of triangles, when these triangle are rendered they might be the size of a pixel. These are movie numbers.</p>
+
+<p>At the highest level Nanite does the following operations:</p>
+
+<p>1) High level instance occlusion and culling</p>
+
+<p>2) Render Visibility Buffer (only Nantie geometry)</p>
+
+<p>3) Process the visibility buffer depth along and combine with traditional G-Buffer depth buffer to get final visibility</p>
+
+<p>4) Resolve the visibility buffer materials and combine with traditional G-Buffer.</p>
+
+<p>5) Feedback data to the CPU for stats and virtual memory streaming</p>
+
+<p>All the concepts that Nanite is built around have been around for a number of years and its all been previously used in games. However, Epic have done a phenomenal job of bringing all the pieces together and seamlessly integrating it - it mostly just works.</p>
+
+<p>Before we look at an actual frame being rendered, lets look at some of the essential high level concepts that Nanite uses</p>
+
+<h3 id="asynchronous-rendering">Asynchronous Rendering</h3>
+
+<p>The first thing to know about Nanite is that it’s completely asynchronous and entirely GPU driven. One GPU compute operation will build a buffer that is fed to a later stage, everything from culling and occlusion, to LOD selection and the final rendering of triangles, with the correct materials, are all handled by the GPU. The CPU isn’t really involved at all, it starts the process by by submitting a template of indirect draw calls and dispatches.</p>
+
+<p>There is a downside to this. Making the whole process asynchronous means the GPU has to do some trivial data prep operations that the CPU would typically do, but can’t because it would require synchronization. These data prep jobs are dispatched in compute shaders utilizing a 1x1 thread group. While not efficient from a pure GPU performance perspective, it keeps things off the CPU and keeps the process asynchronous.   At the end of a frame when the GPU has finished, the CPU gathers feedback from various buffers the GPU filled, these feedback buffers contain stats, visibility data and virtual memory info which drives the streaming of new GPU data.</p>
+
+<p>GPU driven rendering by is nothing new, Playstation was doing on Playstation 3, DX11 add indirect draw calls have been around since DX11 and thee limited control of rendering from the GPU, and its been around since DX11. Unreal already uses it in the traditional rendering path but Nanite takes asynchronous rendering to a while new level.</p>
+
+<h3 id="mesh-data">Mesh data</h3>
+
+<p>At the highest level A nanite mesh is a piece of static geometry that can be instanced, in fact can be instanced hundreds of thousands of times. The options to animate a nantie mesh are very limited, you can use World Position Offset within a material and you can animate the transform.</p>
+
+<p>The mesh data looks nothing like regular geomtry, there is no vertex buffer and there is no index buffer - its a role your own mesh shader but in a lot of ways its better than a mesh shader. The mesh is a tree in the form of Bounding Volume Heirarchy (BVH) of nodes, the children nodes of a parent are the next highrer resolution level in the LOD chain. Each node also contains a cluster, which is the actual geometry, its heavily compressed and tightly packed, each cluster represents 128 contiguous triangles to form a small patch. This packing ensures effificnet processing across a compute thread group where each thread processes one triangle. Ideally, all 128 triangles in a cluster are roughly the same size in order to improve shader utilization across the cores.</p>
+
+<p>The mesh format is optimzied for storage and culling. Having a cluster to represent a patch instead of a random set of triangles allows an patch can be backface culled. The BVH plays a huge roll culling, LOD selection, and virtual streaming.</p>
+
+<p>The build process for a nanite mesh is very complicated, it has to deal with building the BVH, computing LODs that don’t crack along seams when different parts of the mesh are at different resolutions. The build process is why you can’t make a procecural static mesh on the CPU.</p>
+
+<h3 id="what-is-a-visibility-buffer">What is a visibility buffer?</h3>
+
+<p><a href="https://jcgt.org/published/0002/02/04/paper.pdf">Visibility buffers have been around for many years</a> and has been used in games and <a href="https://www.gdcvault.com/play/1023792/4K-Rendering-Breakthrough-The-Filtered">talked about at GDC</a>.
+ many times before Nanite.</p>
+
+<p>The goal of a visibility buffer is to save bandwidth by rendering the absolute minimum amount of data per pixel, making overdraw less of a problem. You need to render just enough to resolve all lighting and materials later in the frame when the buffer is complete and you know exactly which pixels are visible. The buffer itself is a normal GPU buffer that you can render to.</p>
+
+<p>As resolutions increase the traditional deferred G-Buffer gets very bandwidth intensive, the UE5 G-Buffer contents is shown below. Compare this to rendering a single value to a single buffer - its a huge win and has some hidden benefits. For example, every polygon renders the same data, regardless of its final material, therefore you don’t need to switch shaders and you can sort the scene without worrying about materials. This is why you hear Nanite is able to draw a complete scene in a single draw call. This rarely happens because features like WPO force it to change the vertex shader and is one of many reasons animating Nanite with WPO comes at a cost.</p>
+
+<p>The Unreal G-Buffer contains the following:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Gbuffer Texture</th>
+      <th> </th>
+      <th>format</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>A Texture</strong></td>
+      <td> </td>
+      <td>RGBA FP16 (64bit)</td>
+    </tr>
+    <tr>
+      <td>RGB</td>
+      <td>Normal</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>A</td>
+      <td>Per Object GBuffer Data</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td><strong>B Texture</strong></td>
+      <td> </td>
+      <td>RGBA FP16 (64bit)</td>
+    </tr>
+    <tr>
+      <td>R</td>
+      <td>Metallic</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>G</td>
+      <td>Specular</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>B</td>
+      <td>Roughness</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>A</td>
+      <td>Shading model and output mask</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td><strong>C Texture</strong></td>
+      <td> </td>
+      <td>RGBA FP16 (64bit)</td>
+    </tr>
+    <tr>
+      <td>RGB</td>
+      <td>Base Color</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>A</td>
+      <td>Ambient Occluision</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td><strong>D Texture</strong></td>
+      <td> </td>
+      <td>RGBA Unorm8 (32bit)</td>
+    </tr>
+    <tr>
+      <td>RGBA</td>
+      <td>Custom data for shading model</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td><strong>E Texture</strong></td>
+      <td> </td>
+      <td>RGBA Unorm8 (32bit)</td>
+    </tr>
+    <tr>
+      <td>RGBA</td>
+      <td>Precomputed shadow data</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td><strong>F Texture</strong></td>
+      <td> </td>
+      <td>RGBA Unorm8 (32bit)</td>
+    </tr>
+    <tr>
+      <td>RGBA</td>
+      <td>UNUSED</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td><strong>Velocity Texture</strong></td>
+      <td> </td>
+      <td>RG Int16 (32bit)</td>
+    </tr>
+    <tr>
+      <td>R</td>
+      <td>Metallic</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>G</td>
+      <td>Specular</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td><strong>Depth</strong></td>
+      <td> </td>
+      <td>D24S8 (32bit)</td>
+    </tr>
+    <tr>
+      <td>Depth</td>
+      <td> </td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>Stencil</td>
+      <td> </td>
+      <td> </td>
+    </tr>
+  </tbody>
+</table>
+
+<p>This equates to 44bytes per pixel and for a 4K display nearly 400Mb of memory, just for the G buffer. Every pixel that is overdrawn costs another 44 bytes and a lot of instructions in the shader as the entire material is computed when laying down the G-Buffer. By comaprison, the Nanite visibility buffer is a aingle 64bit unordered buffer (called <code class="language-plaintext highlighter-rouge">Nanite.VisBuffer64</code>). Within the 64bits for each pixel, 32bits are used as a depth value and 32bits contain a unique value for each triangle. which is a combination of Draw ID and a polygon ID. No material specific data is stored, the material graph isn’t executed at this stage which is why all geometry can use the same shader.</p>
+
+<p>The 32bits of depth in the Nanite visibility buffer is used only by the visibility buffer. While this depth data will be converted to a real depth buffer later, at this stage it is not compatible with the hardware depth buffer and Nanite geometry doesn’t direclty occlude traditional geomtry. It is worth noting at this point that it is possible to use a 32bit visibility buffer along with the hardware depth buffer and get the same result, in fact its probably faster. Nantite doesn’t do this and combines depth with polygon data in to a 64bit value due to how it uses the compute shaders for rendering</p>
+
+<p>Like a traditional G-Buffer, a visibility buffer cannot handle blended alpha, although it can handle cutout alpha. This is why Nanite cannot render alpha materials.</p>
+
+<blockquote>
+  <p>The GPU has to support atomic 64bit writes before Nanite can be supported.</p>
+</blockquote>
+
+<h3 id="resolving-the-visibility-buffer">Resolving the visibility buffer</h3>
+
+<p>Once the visibility buffer is rendered you have a buffer with the correct geometry but it can’t be used as is and there is nothing related to the materials.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2020.png" alt="Untitled" /></p>
+
+<p>The per pixel polygon data needs to be resolved in to materials so G-Buffer data, compatible with the regular deferred G-Buffer, can be generated. For each pixel on the screen we do the following operations in either a pixel or compute shader:</p>
+
+<ul>
+  <li>
+    <p>Read visibility buffer to get drawID/triangleID and from the draw info compute the material ID.</p>
+  </li>
+  <li>
+    <p>From the draw ID and triangle ID get the index data for all 3 vertices</p>
+  </li>
+  <li>
+    <p>From the index data load the vertex attributes for all 3 vertices.</p>
+  </li>
+  <li>
+    <p>Project the vertices in to screen space, compute the partial derivatives from barycentric coordinates to get the triangle gradients</p>
+  </li>
+  <li>
+    <p>Interpolate vertex attributes at pixel position using the triangle gradients, mip maps are computed from the gradients, perspective correction is computed with from W.</p>
+  </li>
+  <li>
+    <p>Run the material shader with the interpolated vertex data -  this is effectively the same as the pixel shader in traditional rendering.</p>
+  </li>
+</ul>
+
+<p>All of the above seems like a lot of work but has quite efficient caching and data reuse. It’s all done in screen space and work is only performed for pixels that contain data.</p>
+
+<p>To ensure materials are identical across traditional geometry and Nanite, Unreal utilizes the same material code for both. Internally it will build the material graph as a single global function, that function is then called both from the traditional G-Buffer pixel shader using hardware interpolated attributes and from the material resolve shader using computed attributes - both get the same result given the same inputs.</p>
+
+<p>Once the visibiliy buffer is resolved to a G-Buffer the pixels are no different than traditional pixels and the remainder of the pipeline can run as normal.</p>
+
+<blockquote>
+  <p>When resolving the visibility buffer there are sometimes artifacts related to DDX and DDY which don’t exist in the resolve shader (you have no idea if the neighboring pixel is the same shader or not, even the same triangle or not). This can also cause artifacts when selecting mip levels. The artifacts are usually not too visible.</p>
+</blockquote>
+
+<p>However, there is still a big problem; If resolve runs in screen space how do you handle different pixels with different materials? Its not possible to have an uber shader with Nanite material in it. You could do multiple full screen passes, for for each material, checking if the material ID the one you are looking for and skip if it isn’t - this would work and is close to how it is done but Nanite has a much more clever solution.</p>
+
+<p>Resolving the material ID is the first item in the above list and only needs to be done once. Unreal will do a full screen pre-pass computing a temporary buffer material IDs. Here is the genius part: The material ID buffer is converted to a hardware depth buffer, every unique material ID becomes a unique depth value. When doing the full screen passes to resolve the visibility buffer, to select a single material it simply sets the depth compare to equal to depth value of the material ID  and the depth hardware will do the accept/reject - this is an order of magnitude faster than doing it yourself within the shader, the depth hardware is literally made for this.</p>
+
+<p>Even with all the optimizations, resolving the visibility buffer does require a full screen pass per unique material. With the depth buffer assisting, these resolve passes are generally a fraction of a percent and it would only become an issue if you had hundreds of unique Nanite materials or very complicated materials. Unreal also has some optimizations to track what materials were rendered so it only does full screen passes for materials it knows are there.</p>
+
+<p>In this pre-pass stage, Nanite also combines the visibiity depth with the hardware depth buffer. This is the first time the combined depth buffer from traditional rendering and Nanite is known. Nanite materials that are behind traditional geometry will be rejected at this point and those hidden pixels never make it to the material ID buffer.</p>
+
+<h3 id="software-and-hardware-rendering">Software and hardware rendering??</h3>
+
+<p>When you hear software rendering in Nanite, it means software rendering in a compute shader. You might be asking if a software renderer in a compute shader can be faster than a dedicated hardware renderer - the answer is yes, way faster, maybe 3x or 4x faster for small triangles.</p>
+
+<p>Due to the way the hardware rasterizer works within a GPU, it has to always render a screen aligned 2x2 quad of pixels. If you render big triangles the hardware rasterizer is very efficient as all 4 pixels in the 2x2 quad contribute to the output. For small triangles, where there may only be 1 pixel covered, the full 2x2 quad is still rendered but now its only 25% efficient as 3 pixels in the quad didn’t contribute the output. The hardware has a coalescing feature but in general it is terrible at combining small triangles into quads - it generally doesn’t and small triangle performance sucks.</p>
+
+<p>The Nanite software rasterizer is optimized for such small triangles. A single compute thread renders all the pixels of a single small triangle, a thread group of 128 threads renders all 128 triangles in a cluster. Remember the Nanite build tools tries to get 128 similar sized triangles in to clusters so the thread group does a similar amount of work in each thread. This software renderer is a compute shader so doesn’t have the vertex data to feed it - all the unpacking of the packed mesh, the vertex processing and the pixel processing is all done in the same compute shader. Anything that causes the vertex processing to change, most likely WPO, will cause the entire software renderer compute shader to be regenerated to incorporate the WPO math and will cause shaders to switch while rendering the visibility buffer.</p>
+
+<p>Very small triangles is where the software compute shader excels, but not all triangles are tiny and because of this Nanite can also rasterize nanite in a traditional pixel shader. Nanite will decide cluster by cluster whether to render in software compute or hardware pixel shader, it decides on the fly based on the projected screen area of the cluster, allowing clusters to always take the most efficient path. The hardware pixel shader path can render all Nanite geometry even if it is inefficient on small triangles, this is not true for the compute based software renderer, it can only render tiny triangles. There is a debug mode to force everything to render in hardware, there can’t be an option to force everything to software.</p>
+
+<p>The hardware pixel shader path does use the vertex shader but it’s more along the lines of a mesh shader than a traditional vertex shader as its doing all the vertex unpacking, the pixel shader is fairly trivial as it just outputs the ppolygom information. The pixel shader doesn’t use traditional render targets and depth buffers, if fact they aren’t even bound, it uses the same buffers and does the same processing as the compute shader. The software rasterizer uses the exact same pixel coverage rules as the hardware rasterizer so triangle edges align perfectly without gaps or cracks. With the hardware path WPO forces the vertex shader to be regenerated.</p>
+
+<p>After a pixel is rendered to the visibility buffer, it is impossible to know whether it was hardware or software.</p>
+
+<blockquote>
+  <p>The software compute based rasterizer and the hardware pixel based rasterizer can in theory operate at the same time utilizing async compute. Access to the visibility buffer has to be atomic because all the triangles within a cluster are rendered at once across multi compute threads, and if using async compute then also pixel shader threads, and they could all touch the same pixel at the same time. The visibility buffer needs to contain predictable data that is consistent across all threads. This is why the traditional depth buffer isn’t used as its impossible for a compute shader to atomically access it with the corresposding pixel data.</p>
+</blockquote>
+
+<h3 id="virtual-geometry">Virtual Geometry</h3>
+
+<p>The feedback also includes virtualization results, this consists of what GPU buffer pages were accessed but not were not present - when this occurs a request is made for the memory and in the mean time a lower resident LODs is used, the lowest LODs are always present in the GPU memory. The CPU will demand load the required pages and map them to the GPU so they can be used in a future frame, the CPU will remove GPU pages if it starts getting low on physical memory. This is the virtualization part which allows Nanite to have billions of triangles, it works just like virtual memory on a CPU.</p>
+
+<h3 id="hierarchical-z-buffer-hzb">Hierarchical Z Buffer (HZB)</h3>
+
+<p>The HZB is technically not part of Nanite, but is essential to it. HZBs have been in Unreal for a while and is utilized by a bunch of systems from general culling to screen reflections and ray tracing.</p>
+
+<p>HZB is effectively a set of mip maps for a depth buffer. Rather than averaging the source pixels like a color buffer mip map, a Z buffer mip map is the minimum or maximum of all the source depth pixels. With this you can test if a depth is occluded by a given mip level in the HZB then it is also occluded by all the source pixels in the higher mip levels. HZBs can be very efficient at trivial accept/reject operations.</p>
+
+<p>All HZB buffers within Unreal are FP16 single channel textures, they look like this:</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2017.png" alt="Untitled" /></p>
+
+<p>size = 1024x512</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2018.png" alt="Untitled" /></p>
+
+<p>size = 128x64</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2019.png" alt="Untitled" /></p>
+
+<p>size = 32x16</p>
+
+<p>As you can imagine it’s very efficient to use the small mip levels to trivially occlude simple space bounding rectangles, even if you perform the culling on the CPU its still efficient.</p>
+
+<h3 id="culling">Culling</h3>
+
+<p>Culling on Nanite is way more than traditional culling, the culling stages have all the data for LOD calculations and is what drives the virtual memory. Culling itself occurs in two stages, first whole instances are culled via trivial bounding volumes, anything that passes instance culling goes to per cluster culling in the next stage. All the culling stages take a list of active views (different cameras, shaodws etc) and all viewports are processed at once in a single pass.</p>
+
+<p>Instance culling performs frustum culling, distance culling, global plane culling and screen space HZB culling. These individual culling options can be turned on or off with various console commands <code class="language-plaintext highlighter-rouge">r.Nanite.Culling.Drawdistance</code>, <code class="language-plaintext highlighter-rouge">r.Nanite.Culling.Frustum</code>, <code class="language-plaintext highlighter-rouge">r.Nanite.Culling.GlobalClipPlane</code>, <code class="language-plaintext highlighter-rouge">r.Nanite.Culling.HZB</code>, <code class="language-plaintext highlighter-rouge">r.Nanite.Culling.WPODisableDistance</code>.</p>
+
+<p>Frustum and global clip plane culling do what you expect, they trivially reject if the volume is on the wrong side of the plane. Distance culling rejects objects that are too far from the camera, and the distance culling will also disable WPO at some distance for performance reasons. The WPO disable distance is set by the asset builder on a per instance basis.</p>
+
+<p>HZB culling uses a screen space rect of the instance bounding volume to determine if the whole instance is occluded by other geometry.  It tests against the mip map where the screen rect is &lt; 4x4 pixels. The work is done in a compute shader function called IsVisibleHZB() and GetMinDepthFromHZB().</p>
+
+<p>Its a very efficient culling process but there is a huge problem. Nanite instane culling runs at the very start of the frame - nothing has been rendered so there is nothing to occlude against. Nanite will conservatively use a reprojection of last frames HZB, which is complete, it contains all traditional and Nanite geometry.  An optimization Nanite uses is to project the current geometry into last frames buffer by simply using last frames transforms, this is far more reliable than re-projecting the pixels from last frame to this frame, reprojecting a buffer requires holes to be filled and boundary cases to be handled, it also takes GPU time where transforming in to last frame doesn’t.</p>
+
+<p>The re-projection process has limits and not all things can be occluded reliably so Nanite splits in to two passes, an early pass known as the main pass, and a late pass known as the post pass. Each of these passes is pretty much identical in the sequence of operations, the only difference is the main pass uses the reprojected HZB whereas the post uses the real HZB. The post pass occurs late enough in the frame that all traditional and all the Nanite main pass geometry has been rendered, a new HZB is created just for the post Nanite pass. The main pass is more efficient, there will only be a post pass if its needed.</p>
+
+<p>If the instance isn’t visible in any active view no further processing is done for the instance. If the instance is potentially visible (or being forced to render due to various debug flags), then the node is added to the output via shader function StoreCandidateNode(). The instance culling shader is running on multiple compute cores so all output buffers have to be atomic.  To achieve efficient atomic write buffers, Unreal uses 2 buffers. One buffer is small (FQueueState) and is just the atomic state, the other buffer contains the actual data bytes(in this case the node/cluster data). The node data is 8 bytes per visible instance in the main pass or 12 bytes in the post pass. The first 32bit field is packed with the instance id and node flags, the second 32bit field is view id and the node index. At the moment all instances for all views are in the same list, they get binned later in to different lists.</p>
+
+<hr />
+
+<p>The next stage of culling is called Persistent Cull and is where most of the invisible magic of Nanite happens. The stage takes the visible instance list and processes the BVH nodes, ultimately spitting out cluster data for what needs to be rendered. The high level culling operations that are performed on nodes are the same as the instances. Back facing cluster culling is not performed as most clusters that are facing away from the camera are culled by the other side of the object.  If a parent node is culled and isn’t visible then its children aren’t visible and the processing of that node stops, this continues until all nodes are processed. While its doing the node culling, each level of the BVH is projected in to screen space so the tringle density of the cluster can be computed, if the density is too low (low resolutiuon), children nodes represent the higher resolution, so the culling system will keep walking the chidren nodes until it finds a resolution that gives the correct pixel density (or the end of the tree) - this is how the LOD system works, its genius and the resulting visible clusters have a fairly consistent number of triangles per frame because LOD for a given cluster automatically happens based on screen error.</p>
+
+<p>The node culling is the core of the virtual memory system. All Nanite cluster data (aka the polygon data) is in a huge virtual byte buffer called <code class="language-plaintext highlighter-rouge">Nanite.StreamingManager.ClusterPageData</code>, Nanite BVH nodes are packed in a buffer called <code class="language-plaintext highlighter-rouge">Nanite.StreamingManager.Hierarchy</code>. As it is walking the BVH it touches the pages in these virtual buffers to ensure its present, if the memory page is present it continues the walking the BVH, if the memory page isn’t present it stops processing at the parent node, which represents a lower LOD, and the parent must be present to have gotten this far, it also set a bunch a feedback so the CPU can fetch the memory page later. The buffers are organized such that the data for the lowest LODs are at the start of the buffers and are always mapped - therefore the lowest couple of LODs are always available and there is always something to render while the CPU loads data.</p>
+
+<p>A function called <code class="language-plaintext highlighter-rouge">PersistentNodeAndClusterCull()</code> is responsible for the recursive culling and traversal of the per-mesh BVH nodes. Here lies another big problem; Tree-culling in a compute shader is awkward as the number of nodes that need to be processed is dynamic, it can be anywhere from zero to hundreds of thousands. There is no way to know upfront what needs to be dispatched. Mapping compute threads 1:1 to entire trees, meaning a single thread does all the work, can result in extremely long serial processing that severely under utilizes the GPU by forcing all threads in the thread group to take the longest path. Conversely, mapping threads 1:1 to nodes can end up leaving lots of thread idle Unreal has a very elegant solution. It spawns just enough GPU worker threads to fill the GPU and uses an atomic Multiple Producer, Multiple Consumer job queue to keep the threads busy. Worker threads atomically consume the next item in the queue and they keep going until there is nothing left, when the queue is empty all the work is done. The queue can contain BVH nodes or clusters, which are leaf nodes that contain the batch of 128 triangle. Initially the queue is populated with the nodes generated by preceding instance cull pass, when a worker thread gets to a child node or cluster rather than processing it itself, it atomically adds it to the end of the queue. Workers threads will continuously consume items until the queue is empty and everything is processed, all the while the GPU is optimally executing, there are very few idle threads the amount of work done by each thread is similar. The two core functions that do the work are ProcessNodeBatch and ProcessClusterBatch. Only nodes generate new work, clusters are only consumed and they generate render data and never generate new work.</p>
+
+<h2 id="lets-render-a-frame">Let’s Render a frame</h2>
+
+<p>In this example frame we are going to use a very simple scene consisting of a rectangle and a couple spheres.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%204.png" alt="Untitled" /></p>
+
+<p>The rectangle (show below in Red) is traditional deferred geometry and the spheres (Green) are Nanite geometry.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%205.png" alt="Untitled" /></p>
+
+<p>Step by step we are going to go through a frame to see what renders and how everything ultimately ends up in the standard G-Buffer.</p>
+
+<h3 id="stage-1-depthpass">Stage 1 DepthPass</h3>
+
+<p>The first stage is to render the depth of all opaque traditional geometry. This is typically the first pass without Nanite but this is enforced if Nanite is enabled. The main depth buffer in Unreal is called <code class="language-plaintext highlighter-rouge">SceneDepthZ</code> and ultimately is the hardware depth buffer used for lighting and shadows after the G-Buffer, all Nanite geometry will ultimately end up in this hardware depth buffer.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%209.png" alt="Untitled" /></p>
+
+<p>Within RenderDoc you can see this is the normal early depth pass</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2010.png" alt="Untitled" /></p>
+
+<p>Only the rectangle is present in the hardware depth because the rectangle is the only traditional geometry.</p>
+
+<h3 id="stage-2-initcontext">Stage 2 InitContext</h3>
+
+<p><img src="/assets/img/posts/nanite/Screenshot_2023-08-22_152636.png" alt="Untitled" /></p>
+
+<p>This one is pretty simple. It’s a compute shader that clears the <code class="language-plaintext highlighter-rouge">VisBuffer64</code> visibility buffer to default/empty values.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2011.png" alt="Untitled" /></p>
+
+<blockquote>
+  <p>Within in editor the allocated size of buffers is bigger than the render size, only the pixels needed for the current window size are rendered. This does not happen in fullscreen builds.</p>
+</blockquote>
+
+<p>Nanite supports async compute, when enabled, this compute based clear of the visibility buffer can overlap with rasterizing of the depth buffer in the previous stage.</p>
+
+<h3 id="stage-3-visbuffer">Stage 3 VisBuffer</h3>
+
+<p>This is the Nanite main render pass for the visibility buffer.  The first thing it does is initialize various queues, remember everything has to be done on the GPU to remain asynchronous, InitArgs is a single dispatch of a compute shader that resets all the working buffers that will track clusters across both hardware and software and across main and post passes.</p>
+
+<p>Nanite now does either 1 or 2 passes: The main pass using the pre-projected HZB, and if needed the post pass using a new HZB. In RenderDoc a frame with two passes looks this:</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2012.png" alt="Untitled" /></p>
+
+<p>Although there are optimizations for a single pass, most frames in a complex scene with shadows and lighting will have do two passes. Any nanite pass breaks down into the following sequence of operations:</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2014.png" alt="Untitled" /></p>
+
+<p><strong><em><code class="language-plaintext highlighter-rouge">Instance Cull - NaniteInstanceCull.usf</code></em></strong></p>
+
+<p>This is the high level instance culling, it builds an output lists instances and initial nodes to process.</p>
+
+<p><strong><em><code class="language-plaintext highlighter-rouge">PersistentCull - NaniteClusterCulling.usf</code></em></strong></p>
+
+<p>This is the BVH culling stage.</p>
+
+<blockquote>
+  <p>In earlier versions of  UE5 this stage can appear as <code class="language-plaintext highlighter-rouge">NodeAndClusterCull</code> in a capture, the difference is <code class="language-plaintext highlighter-rouge">PersistentCull</code> is a single kernel that operates on an atomic list of nodes and clusters, whereas <code class="language-plaintext highlighter-rouge">NodeAndClusterCull</code> is multiple compute kernels that operate either on nodes or clusters. <code class="language-plaintext highlighter-rouge">PersistentCull</code> is the current default as it is more efficient. <code class="language-plaintext highlighter-rouge">GNanitePersistentThreadCulling</code> is used to select between them in code and this is controlled by <code class="language-plaintext highlighter-rouge">r.Nanite.PersistentThreadCulling</code></p>
+</blockquote>
+
+<p><strong><em><code class="language-plaintext highlighter-rouge">CalculateSafeRasterizerArgs</code></em></strong>, <strong><em><code class="language-plaintext highlighter-rouge">RasterBinClassify</code></em></strong>, <strong><em><code class="language-plaintext highlighter-rouge">RasterBinReserve</code></em></strong>, <strong><em><code class="language-plaintext highlighter-rouge">RasterBinScatter</code></em></strong></p>
+
+<p>These next 4 compute stages are grouped together, all of them are in NaniteRasterBinning.usf. These stages ultimately generate the execute indirect buffers and process the data from the previous culling stages in to bins for viewports.  Remember there is no CPU involvement so even the most simple tasks are done in compute.</p>
+
+<p><strong><em><code class="language-plaintext highlighter-rouge">HW Rasterize</code></em></strong></p>
+
+<p>HW Rasterize uses a traditional vertex/pixel shaders to render large triangle clusters to the visibility buffer.  Every WPO material will require its own shaders and its own set of draw calls.</p>
+
+<p>For performance comparison, all clusters can be forced to the hardware rasterizer by setting <code class="language-plaintext highlighter-rouge">r.Nanite.ComputeRasterization 0</code>. You can’t force everything to render with software.</p>
+
+<p><strong><em><code class="language-plaintext highlighter-rouge">SW Rasterize</code></em></strong></p>
+
+<p>SW Rasterize the the software rendering compute shader. A thread group of 128 threads will process one cluster, each thread handling a single triangle.</p>
+
+<p>Async compute can allow the software rasterizer to run at the same time as the hardware rasterizer. It is controlled in code by <code class="language-plaintext highlighter-rouge">r.Nanite.AsyncRasterization</code> but the GPU also has to support async compute (<code class="language-plaintext highlighter-rouge">GSupportsEfficientAsyncCompute</code> is true).  On DX12 nvidia hardware does not support compatible async compute but AMD does. Xbox and PS5 always sets <code class="language-plaintext highlighter-rouge">GSupportsEfficientAsyncCompute</code> and this feature itself is good reason to test on AMD hardware and Xbox/PS5.</p>
+
+<p>For our simple test scene this is the resulting visibility buffer after the main pass, in this example it was rendered entirely by the software rasterizer.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2020.png" alt="Untitled" /></p>
+
+<p>The visibility buffer contains just Nanite geometry, there is no interaction at this point with Nanite and traditional geometry.</p>
+
+<p><strong><em><code class="language-plaintext highlighter-rouge">BuildPreviousOccluderHZB</code></em></strong></p>
+
+<p>This stage is only present if there is a post pass and takes in SceneDepthZ (the traditional depth buffer) along with the current visibility buffer from the main pass, and it generates a new HZB that will be used by the post pass. It does this by using 3 consecutive compute shaders:</p>
+
+<blockquote>
+  <p>I had to force Unreal to run this path so I could get the screen shots.</p>
+</blockquote>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2022.png" alt="Untitled" /></p>
+
+<p>The first shader takes the current visibility buffer, which also contains Nanite depth, and the traditional depth buffer, combines the depths and generates the first three mips of the new HZB.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2023.png" alt="Untitled" /></p>
+
+<p>The tranditional depth buffer contents</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2024.png" alt="Untitled" /></p>
+
+<p>The visibility buffer contents including 32bits of depth</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2025.png" alt="Untitled" /></p>
+
+<p>The output includes all Nanite and traditional geometry. This is the highest resolution buffer in the stack, final two compute shaders take this and generate lower mips. This new HZB, which is correct for this frame, is used without reprojection as the HZB for the post pass.</p>
+
+<h3 id="stage-4-emitdepthtargets">Stage 4: EmitDepthTargets</h3>
+
+<p>At this stage the main and post pass are done and rendering of the visibility buffer is complete. The Nanite part is pretty much complete, this is where the visibility buffer starts to be resolved in to the standard G Buffer. Everything from here is in  screen space.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2026.png" alt="Untitled" /></p>
+
+<p><strong><em><code class="language-plaintext highlighter-rouge">ClearRenderTarget</code></em></strong></p>
+
+<p>This one is pretty self explanatory. <code class="language-plaintext highlighter-rouge">Nanite.MaterialResolve</code> is a 2 channel frame buffer that holds the global material ID and various flags for each visible Nanite pixel, before running the material resolve the material id buffer is cleared to black. Within this 2 channel 32bit integer frame buffer, R contains material info flags like receives decals, has distance fields, shading bin and lighting channels - basically things needed later. G is the material id, in our example the material id is zero as there is only one material.</p>
+
+<p>The function PackMaterialResolve() packs all the required data into the pair of 32bit values.</p>
+
+<p><strong><em><code class="language-plaintext highlighter-rouge">Emit Scene Depth/Material/Velocity (NaniteExportGBuffer.usf)</code></em></strong></p>
+
+<p>This single shader does multile things, outputs multiple frame buffers.</p>
+
+<p>The material resolve computes triangle and material information from the Nanite visibility buffer. The material id is only written if the Nanite depth is in front of the scene depth.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2027.png" alt="Untitled" /></p>
+
+<p>These are the only pixels that will be processed going forwards.</p>
+
+<p>Nanite depth gets combined with the main depth buffer, Nanite pixels that are in front of traditional geometry will use depth write in the pixel shader to update the hardware depth buffer.  The hardware depth buffer is now complete and can be used for traditional deferred operations later in the pipe.  World space positions can be computed from this final depth buffer without regard for which pixels are Nanite or traditional.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2028.png" alt="Untitled" /></p>
+
+<p>Now there is a complete depth buffer and a material id buffer containing only the visible Nanite pixels, Nanite pixels behind traditional geometry have now been culled on a per pixel level, any Nanite clusters that incorrectly passed through HZB culling are now correctly resolved.</p>
+
+<p>One final thing this shader does is lay down initial veloctiy data but only for transform based movement - either the object moving or the camera moving, pixel velocity from WPO movement is evaluated later (another reason why WPO on nanite is slower).</p>
+
+<p><strong><em><code class="language-plaintext highlighter-rouge">Emit Scene Stencil</code></em></strong></p>
+
+<p>This is only present if the pixel shader hardware cannot write stencil reference values from the shader, if the hardware can write stencil values from a piel shader then this pass is part of the previous pass.</p>
+
+<p>The stencil is written based on material flags in the R channel of the <code class="language-plaintext highlighter-rouge">Nanite.MaterialResolve</code> buffer. The stencil data is used for things like decal materials or custom depth passes.</p>
+
+<p><strong><em><code class="language-plaintext highlighter-rouge">Emit Material Depth</code></em></strong></p>
+
+<p>This is where the material ID buffer is converted to a hardware depth buffer allowing the depth compare hardware to select which pixels are processed for each material. You could do this yourself in the pixel shader but the depth compare hardware can be used to cull/accept pixels before the pixel shader even runs!!</p>
+
+<p>The input is Nanite.MaterialResolve and the output looks like this:</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2029.png" alt="Untitled" /></p>
+
+<p>Our simple test scene only has a single Nanite material so for this example all the white pixels are the same value (real depth=0.00006)</p>
+
+<h3 id="stage5-g-buffer-base-pass">Stage5 G-Buffer base pass</h3>
+
+<p>At this point, the G-Buffer for the traditional geometry has not been rendered so that is done first. This base pass is traditional deferred 3D rendering and because the depth buffer has been updated since the opaque pass, the traditional pixels that are occluded by nanite are not rendered. These pixels fail the depth compare as the base pass checks if the Z is equal.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2031.png" alt="Untitled" /></p>
+
+<p>Nanite materials are added on top of this with a full screen pass per material using the nanite material depth buffer.</p>
+
+<p>This can become a performance problem as every Nanite material has to do a full screen pass, this can get very expensive at high resolutions with complex materials. Remember everything is running on GPU and there a few compute shaders that execute prior to this to generate indirect draw buffers, these compute shaders also cull materials that aren’t visible so there are full screen passes for visible materials, not every material in the level.
+<img src="/assets/img/posts/nanite/Untitled%2032.png" alt="Untitled" /></p>
+
+<p>In our case we only have one nanite material so there is only a single draw</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2033.png" alt="Untitled" /></p>
+
+<p>From this point on Nanite geometry is in the G-Buffer and identical to any other geometry as far as future lighting and shadows are concerned.</p>
+
+<hr />
+
+<h2 id="multiple-nanite-materials">Multiple Nanite Materials</h2>
+
+<p>Lets make a new scene with 3 materials across 4 spheres. The two black spheres have the same material, the blue and white are different materials, all are Nanite meshes.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2034.png" alt="Untitled" /></p>
+
+<p>All the Nantie geometry is rendered in a single API call, because the visibility buffer is independent of material, in this example everything is rendered by SW Rasterize.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2035.png" alt="Untitled" /></p>
+
+<p>However now we have three different materials and the Nanite.MaterialResolve shows this. The two red spheres have the same material ID of zero, whereas the two yellow spheres are different, one has a material ID of 1 and the other 2.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2036.png" alt="Untitled" /></p>
+
+<p>This is pretty much what you would expect from what we know about how Nanite resolves materials.</p>
+
+<p>The material depth buffer is also what you would expect</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2037.png" alt="Untitled" /></p>
+
+<p>The depth values are 0.00006, 0.00012 and 0.00018 for the three materials.</p>
+
+<p>Up to here nothing is really any different regardless of the number of materials used in the scene. The base pass is where things are different, there is indeed one full-screen quad rendered per material.</p>
+
+<p>These full-screen passes take about 20uS as a given material is only evaluated for pixels that use that material due to the depth test trick using the Material Depth buffer. In reality there needs to be a lot of expensive materials covering a lot of pixels for this stage to really be expensive but can happen.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2038.png" alt="Untitled" /></p>
+
+<p>There is indeed a full screen pass per material</p>
+
+<h2 id="wpo-materials">WPO Materials</h2>
+
+<p>Let’s take the above scene and add a simple WPO calculation to the black material (left two spheres).</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2039.png" alt="Untitled" /></p>
+
+<p>Once WPO is enabled on a Nanite mesh it is important to set the Max displacement in the material details panel. Any displacement above this amount is clamped. This is quite important for Nanite is its used to create maximum extent nodes that can be safely culled.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2040.png" alt="Untitled" /></p>
+
+<p>You only need to specify this value if the WPO can make the object bigger, if it stays within its original bounds this value does not need to be set. Leaving this value at 0.0 disables clamping, any WPO offset is allowed, but it won’t modify any bounding volumes - incorrect culling and flickering can result.</p>
+
+<blockquote>
+  <p>None Nanite materials should set this too.</p>
+</blockquote>
+
+<p>The Nanite software renderer is a monolithic compute shader that does all the vertex processing, rasterization and pixel processing. For a non WPO material that vertex and pixel processing is always the same, hence why we can use a single draw for all materials. However, when WPO is enabled the vertex pipeline needs to be modified, the final position is no longer a simple transform but the result of the material graph. The base vertex code used by the HW vertex shaders and the SW compute shaders is NaniteVertexFactory.usf and this uses a function called GetMaterialWorldPositionOffset() which is by default an empty function.  When you create a WPO material, the code required for the WPO operation is injected in to GetMaterialWorldPositionOffset() and a new set of shaders is generated.</p>
+
+<p>The WPO operation implemented in GetMaterialWorldPositionOffset() is called multiple times in the vertex factory because it needs velocity which means WPO is computed for this frame and last frame. Unlike the traditional renderer where velocity can be computed in the vertex shader and and passed to the pixel shader, Nanite must compute the velocity at each pixel which means the entire WPO graph has to be evaluated twice. The early velocity buffer cannot be used by WPO materials for local movement, final velocity is always computed at each pixel with the velocity buffer being combined with the local WPO velocity. Any WPO on Nanite should be a very simple function because of the number of evaluations.</p>
+
+<blockquote>
+  <p>For Nanite every different WPO material will be a different draw call.</p>
+</blockquote>
+
+<p>The first dispatch draws both the WPO objects in SW, yes multiple objects with the same material will draw at once. This is using the custom generated WPO SW Rasterize compute shader.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2041.png" alt="Untitled" /></p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2042.png" alt="Untitled" /></p>
+
+<p>The second dispatch draws the non WPO objects with the default nanite compute shader.</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2043.png" alt="Untitled" /></p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2044.png" alt="Untitled" /></p>
+
+<p>If we force HW rasterizing once again we still have 2 render passes, one for the WPO material and one for the none WPO material. For the HW path WPO generates a new pixel shader and vertex shader.</p>
+
+<h1 id="fallback-mesh">Fallback Mesh</h1>
+
+<p>Every Nanite mesh has a fallback mesh used for per poly collision, UV unwrapping, light baking, ray tracing etc. The fallback mesh is also used for rendering if nanite is disabled or not supported - this may be important for DX11 if that is the minimum spec PC.</p>
+
+<p>On platforms that do support Nanite you can disable Nanite globally with <code class="language-plaintext highlighter-rouge">r.Nanite 0</code> and force all the fallback meshes to render, <code class="language-plaintext highlighter-rouge">r.Nanite.ProxyRenderMode 0</code> means render the fallback mesh if Nanite is not available, <code class="language-plaintext highlighter-rouge">r.Nanite.ProxyRenderMode 1</code> means don’t render nanite at all.</p>
+
+<p>In the mesh editor there are options for specifying the resolution and quality of the fallback mesh, along with the ability to specify a custom fallback mesh/LODs. In a game that only runs on platforms that support Nanite a large memory saving can be had by setting the fallback mesh to be very low resolution or potentially nonexistent if none of the CPU side features are needed or data is supplied in other ways such as custom collision meshes.</p>
+
+<h1 id="nanite-stats">Nanite Stats</h1>
+
+<p>What do the primary Nanite stats mean and what are we looking for?</p>
+
+<p><img src="/assets/img/posts/nanite/Untitled%203.png" alt="Untitled" /></p>
+
+<p><code class="language-plaintext highlighter-rouge">main</code> and <code class="language-plaintext highlighter-rouge">post</code> refer to the two Nanite passes, the stats within the two blocks are the same. The main pass is the first pass that uses last frames HZB, the post pass is the geometry that wasn’t rendered last frame or its simply unsure about it. Ideally you want most geometry in the main pass.</p>
+
+<p><code class="language-plaintext highlighter-rouge">pre-cull</code> is the number of instances before culling</p>
+
+<p><code class="language-plaintext highlighter-rouge">post-cull</code> is the number of instances after the instance culling stage - visibile or partially visible instances.</p>
+
+<p>The number of instances isn’t really a factor because they further broken down in to clusters. However, having uniform shapes that are easy to bound in a sphere or a screen space rectangle will help with rejecting instances.</p>
+
+<p><code class="language-plaintext highlighter-rouge">Node visits</code> is the number of BVH nodes that were visited (part of the second stage culling in NodeAndClusterCulling). This will at least be the number of instances because every instance has at least one BVH node. You don’t have much control over this because the BVH for an instance is built for you.</p>
+
+<p><code class="language-plaintext highlighter-rouge">candidates</code> this is the number of candidate render clusters prior to cluster culling.</p>
+
+<p><code class="language-plaintext highlighter-rouge">ClustersSW</code> The number of clusters rendered by the software compute path. Keeping triangles within a cluster a consistent size will make the cluster render quicker.</p>
+
+<p><code class="language-plaintext highlighter-rouge">ClustersHW</code> The number of clusters rendered by the hardware rasterizer (traditional GPU). Lots of clusters in here indicate large triangles that aren’t ideal for Nanite.</p>
+
+<p><code class="language-plaintext highlighter-rouge">Clusters</code> The total number of clusters rendered via any path</p>
+
+<p>The total section is the sum of the main and post passes.</p>
+
+<p><code class="language-plaintext highlighter-rouge">Clusters</code> is the total number of clusters in the entire frame (summed across the 4 passes, HW+SW from main and post).</p>
+
+<p><code class="language-plaintext highlighter-rouge">Tris</code> total number of triangles in the rendered clusters</p>
+
+<p><code class="language-plaintext highlighter-rouge">Verts</code> total number of verts in the rendered clusters.</p>
+
+<h1 id="nanite-overview-visualizer">Nanite Overview visualizer</h1>
+
+<p><img src="/assets/img/posts/nanite/Untitled%2045.png" alt="Untitled" /></p>
+
+<p>A lot of these are self explanatory.</p>
+
+<p><code class="language-plaintext highlighter-rouge">Evaluate WPO</code> This shows what materials use WPO. Green has WPO, red doesn’t.  You want lots of red here. If there is green make sure they use a minimal number of WPO materials so you aren’t switching shaders all the time.</p>
+
+<p><code class="language-plaintext highlighter-rouge">Material ID</code> show the total number of Nanite materials. Remember Nanite performs a full screen pass for every material, there every different color in this view is a full screen pass to lay down the G-Buffer. Use this with the <code class="language-plaintext highlighter-rouge">Evaluate WPO</code> view to see how many WPO materials are being used.</p>
+
+<p><code class="language-plaintext highlighter-rouge">Raster bins</code> is how the scene was grouped in to bins which represent batches of geometry. It could be a single bin but is typically 4, one for each of HW+SW in main and post passes. WPO will seriously mess this up especially if there are lots of WPO materials.</p>
+
+<p><code class="language-plaintext highlighter-rouge">Overdraw</code> This is a big one to check when looking for performance problems. Nanite only supports opaque geometry so in theory it should all nicely occlude and there should be minimal overdraw. This is mostly true but Nanite supports masked alpha which messes with the culling and it’s possible to make geometry that is difficult to cull. Remember it is clusters that are culled in the HZB not triangles therefore if any part of the cluster is visible the entire 128 triangle cluster is rendered. This makes things like foliage very difficult to cluster cull and you’ll see the overdraw and the number of rendered clusters go through the roof.   Why is foliage problematic to render? First of all, it’s difficult to make 128 triangle clusters that have nice shape when projected into screen space - this makes getting false positives for visibility really easy. Second, it’s easy to get to holes in the depth buffer where a single pixel of the back plane or distant geometry is visible, these depth holes, even one pixel in size, push the HZB back to the farthest visible distance.  When the mips of the HZB are generated, the output pixel is the furthest of all the input pixels, this makes the small HZB levels almost useless for culling as the farthest distance in any HZB pixel is the distant geometry or back plane.</p>
+
+<h1 id="debug-rendering">Debug Rendering</h1>
+
+<p>Nanite has a lot of debug modes and visualizers in the editor. Some of the debug features force shaders to output to multiple frame buffers when they technically don’t need to. Any profiling should be done in a full retail build where these features will be disabled.</p>]]></content><author><name>Rob Wyatt</name></author><category term="software" /><category term="graphics" /><summary type="html"><![CDATA[A deep dive in to Unreal5 and Nanite, how does it work?]]></summary></entry></feed>
